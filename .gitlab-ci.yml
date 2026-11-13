@@ -48,6 +48,9 @@ android:
   variables:
     ANDROID_HOME: /opt/android-sdk
     ANDROID_SDK_ROOT: /opt/android-sdk
+  # Do not pipe yes into sdkmanager. With pipefail, yes exits 141
+  # (SIGPIPE) after sdkmanager closes stdin, and the job fails even though
+  # the packages were installed. The license file is written instead.
   before_script:
     - apt-get update
     - apt-get install -y --no-install-recommends wget unzip ca-certificates
@@ -55,12 +58,9 @@ android:
     - wget -q -O /tmp/cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
     - unzip -q /tmp/cmdtools.zip -d /tmp/cmdtools
     - mv /tmp/cmdtools/cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
-    # Do not pipe `yes` into sdkmanager. With `set -o pipefail`, yes exits 141
-    # (SIGPIPE) after sdkmanager closes stdin, and the job fails even though
-    # the packages were installed.
     - mkdir -p "$ANDROID_HOME/licenses"
     - printf '%s\n' "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_HOME/licenses/android-sdk-license"
-    - "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+    - '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0" "platform-tools"'
   script:
     - cd wearos
     - chmod +x ./gradlew

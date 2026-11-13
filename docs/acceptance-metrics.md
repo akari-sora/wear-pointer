@@ -24,9 +24,9 @@ Target: 90 Hz or better sustained for 60 seconds with the screen on. Below 50 Hz
 
 Target over 60 seconds, watch still, then watch moving:
 
-- sequence loss under 2%
-- `notify_drop` near 0 while connected
-- `rx` within about 10% of `watch_samples`
+- sequence loss under 2% on one connection. A reconnect resets the sequence; that reset is not loss
+- `notify_drop` (callback and API failures) near 0 while connected. Coalesced aim samples are logged separately and are not radio loss
+- `rx` within about 10% of `aim_hz` (watch samples divided by the stats window, not a raw count treated as Hz)
 
 If `watch_samples` is ~100 and `rx` is ~20 with a matching loss percentage, the radio or the connection interval is dropping notifications. If `watch_samples` is already ~20, the sensor path is the limit and BLE is not the first suspect.
 

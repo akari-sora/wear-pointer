@@ -10,12 +10,17 @@
 use crate::PointerLink;
 use async_trait::async_trait;
 use std::sync::mpsc::Sender;
+use std::time::Instant;
 
 pub struct PeripheralLink;
 
 #[async_trait]
 impl PointerLink for PeripheralLink {
-    async fn run(&mut self, _incoming: Sender<Vec<u8>>) -> anyhow::Result<()> {
+    async fn run(
+        &mut self,
+        _incoming: Sender<crate::LinkEvent>,
+        _clock: Instant,
+    ) -> anyhow::Result<()> {
         anyhow::bail!(
             "role=peripheral is not implemented on the desktop yet. \
              That is the fallback where this process advertises and the watch connects \

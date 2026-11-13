@@ -1,6 +1,7 @@
 package dev.wearpointer.ble
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
@@ -15,39 +16,73 @@ import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.ParcelUuid
 import android.util.Log
 import dev.wearpointer.proto.Packets
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Watch as GATT peripheral. The desktop scans, connects, and subscribes.
- * This is the Stage 1 path. If the Watch7 radio cannot advertise, [LinkListener]
- * hears [LinkListener.onPeripheralUnsupported] and the UI can switch roles.
+ * Watch as GATT peripheral. The pointer characteristic is notify-only.
+ * [notifyCharacteristicChanged]'s confirm flag stays false so the stack sends
+ * a notification, which is what the CCCD bit-0 subscription enables.
+ * [OutboundQueue] waits for [onNotificationSent] before the next packet.
+ * Aim coalesces; clicks and drags do not.
+ *
+ * Advertising stops while a central is connected. It is started again on
+ * disconnect, and the GATT server is torn down and rebuilt when the adapter
+ * goes off and back on. A status string is not evidence that advertising started.
  */
 class WatchPeripheral(
     private val context: Context,
     private val listener: LinkListener,
 ) : PointerTransport {
     private val subscribed = ConcurrentHashMap.newKeySet<BluetoothDevice>()
+    private val queue = OutboundQueue()
+    private val lock = Any()
+    private var callbacksLeft = 0
+    private var flightOk = true
     private var server: BluetoothGattServer? = null
     private var advertiser: BluetoothLeAdvertiser? = null
     private var pointerChar: BluetoothGattCharacteristic? = null
     private var running = false
+    private var radioOn = false
+    private var receiverRegistered = false
 
     override val ready: Boolean
         get() = subscribed.isNotEmpty()
 
+    private val radioReceiver = object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context, intent: Intent) {
+            if (intent.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+            when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
+                BluetoothAdapter.STATE_OFF, BluetoothAdapter.STATE_TURNING_OFF -> {
+                    radioOn = false
+                    tearDownRadio()
+                    listener.onConnectionChanged(false)
+                    listener.onStatus("Bluetooth is off")
+                }
+                BluetoothAdapter.STATE_ON -> {
+                    radioOn = true
+                    if (running) openServer()
+                }
+            }
+        }
+    }
+
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
-            Log.i(TAG, "advertising")
+            Log.i(TAG, "advertising started")
             listener.onStatus("Advertising")
         }
 
         override fun onStartFailure(errorCode: Int) {
             val reason = "advertise failed ($errorCode)"
             Log.w(TAG, reason)
+            if (errorCode == ADVERTISE_FAILED_ALREADY_STARTED) return
             if (errorCode == ADVERTISE_FAILED_FEATURE_UNSUPPORTED) {
                 listener.onPeripheralUnsupported(reason)
             } else {
@@ -61,8 +96,11 @@ class WatchPeripheral(
             Log.i(TAG, "connection ${device.address} state=$newState status=$status")
             if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 subscribed.remove(device)
+                synchronized(lock) { queue.clear() }
                 listener.onConnectionChanged(ready)
-                if (running && !ready) listener.onStatus("Advertising")
+                if (running && radioOn && subscribed.isEmpty()) {
+                    restartAdvertising()
+                }
             }
         }
 
@@ -71,7 +109,20 @@ class WatchPeripheral(
                 listener.onStatus("GATT service failed ($status)")
                 return
             }
-            startAdvertising()
+            restartAdvertising()
+        }
+
+        override fun onNotificationSent(device: BluetoothDevice, status: Int) {
+            val next = synchronized(lock) {
+                callbacksLeft = (callbacksLeft - 1).coerceAtLeast(0)
+                flightOk = flightOk && status == BluetoothGatt.GATT_SUCCESS
+                if (callbacksLeft > 0) {
+                    null
+                } else {
+                    queue.onFinished(flightOk)
+                }
+            }
+            if (next != null) transmit(next)
         }
 
         override fun onCharacteristicReadRequest(
@@ -92,7 +143,9 @@ class WatchPeripheral(
             offset: Int,
             value: ByteArray?,
         ) {
-            if (characteristic.uuid == Packets.CONTROL_UUID && value?.firstOrNull()?.toInt() == Packets.CONTROL_REQUEST_STATS) {
+            if (characteristic.uuid == Packets.CONTROL_UUID &&
+                value?.firstOrNull()?.toInt() == Packets.CONTROL_REQUEST_STATS
+            ) {
                 listener.onStatsRequested()
             }
             if (responseNeeded) {
@@ -110,6 +163,8 @@ class WatchPeripheral(
             value: ByteArray?,
         ) {
             if (descriptor.uuid == Packets.CCCD_UUID) {
+                // Bit 0 is notifications. Bit 1 would be indications, which this
+                // characteristic does not send.
                 val enable = value != null && value.isNotEmpty() && (value[0].toInt() and 0x01) != 0
                 if (enable) subscribed.add(device) else subscribed.remove(device)
                 Log.i(TAG, "notify ${if (enable) "on" else "off"} for ${device.address}")
@@ -126,11 +181,24 @@ class WatchPeripheral(
     override fun start() {
         if (running) return
         running = true
-        val manager = context.getSystemService(BluetoothManager::class.java)
-        val adapter = manager?.adapter
+        registerRadioReceiver()
+        val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
         if (adapter == null || !adapter.isEnabled) {
+            radioOn = false
             listener.onStatus("Bluetooth is off")
-            running = false
+            return
+        }
+        radioOn = true
+        openServer()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun openServer() {
+        val manager = context.getSystemService(BluetoothManager::class.java) ?: return
+        val adapter = manager.adapter ?: return
+        if (!adapter.isEnabled) {
+            radioOn = false
+            listener.onStatus("Bluetooth is off")
             return
         }
         try {
@@ -141,10 +209,10 @@ class WatchPeripheral(
         val advertiser = adapter.bluetoothLeAdvertiser
         if (advertiser == null) {
             listener.onPeripheralUnsupported("this radio has no BLE advertiser")
-            running = false
             return
         }
         this.advertiser = advertiser
+        tearDownServerOnly()
 
         val pointer = BluetoothGattCharacteristic(
             Packets.POINTER_UUID,
@@ -170,7 +238,6 @@ class WatchPeripheral(
         val server = manager.openGattServer(context, gattCallback)
         if (server == null) {
             listener.onPeripheralUnsupported("openGattServer returned null")
-            running = false
             return
         }
         this.server = server
@@ -178,8 +245,13 @@ class WatchPeripheral(
     }
 
     @SuppressLint("MissingPermission")
-    private fun startAdvertising() {
+    private fun restartAdvertising() {
         val advertiser = advertiser ?: return
+        try {
+            advertiser.stopAdvertising(advertiseCallback)
+        } catch (err: Exception) {
+            Log.w(TAG, "stopAdvertising before restart", err)
+        }
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
@@ -197,32 +269,89 @@ class WatchPeripheral(
 
     @SuppressLint("MissingPermission")
     override fun send(packet: ByteArray, reliable: Boolean): Boolean {
-        val server = server ?: return false
-        val characteristic = pointerChar ?: return false
+        if (!ready) return false
+        val next = synchronized(lock) { queue.enqueue(packet) }
+        if (next != null) transmit(next)
+        return true
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun transmit(packet: ByteArray) {
+        val server = server
+        val characteristic = pointerChar
         val devices = subscribed.toList()
-        if (devices.isEmpty()) return false
-        var accepted = false
+        if (server == null || characteristic == null || devices.isEmpty()) {
+            val next = synchronized(lock) { queue.onApiRejected() }
+            if (next != null) transmit(next)
+            return
+        }
+        var accepted = 0
         for (device in devices) {
-            val status = server.notifyCharacteristicChanged(device, characteristic, reliable, packet)
-            if (status == BluetoothStatusCodes.SUCCESS) accepted = true
+            // confirm = false: notification, matching PROPERTY_NOTIFY and CCCD bit 0.
+            val status = server.notifyCharacteristicChanged(device, characteristic, false, packet)
+            if (status == BluetoothStatusCodes.SUCCESS) accepted++
             else Log.w(TAG, "notify status $status")
         }
-        return accepted
+        val next = synchronized(lock) {
+            callbacksLeft = accepted
+            flightOk = accepted > 0
+            if (accepted == 0) {
+                queue.onApiRejected()
+            } else {
+                queue.markAccepted()
+                null
+            }
+        }
+        if (next != null) transmit(next)
+    }
+
+    override fun takeCounters(): SendCounters {
+        val raw = synchronized(lock) { queue.takeCounters() }
+        return SendCounters(raw.accepted, raw.completed, raw.rejected, raw.coalesced)
     }
 
     @SuppressLint("MissingPermission")
     override fun stop() {
         running = false
+        radioOn = false
+        unregisterRadioReceiver()
+        tearDownRadio()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun tearDownRadio() {
+        synchronized(lock) { queue.clear() }
         subscribed.clear()
         try {
             advertiser?.stopAdvertising(advertiseCallback)
         } catch (err: Exception) {
             Log.w(TAG, "stopAdvertising", err)
         }
+        advertiser = null
+        tearDownServerOnly()
+    }
+
+    private fun tearDownServerOnly() {
         server?.close()
         server = null
-        advertiser = null
         pointerChar = null
+    }
+
+    private fun registerRadioReceiver() {
+        if (receiverRegistered) return
+        val filter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+        context.registerReceiver(radioReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        receiverRegistered = true
+    }
+
+    private fun unregisterRadioReceiver() {
+        if (!receiverRegistered) return
+        try {
+            context.unregisterReceiver(radioReceiver)
+        } catch (err: IllegalArgumentException) {
+            Log.w(TAG, "receiver already unregistered", err)
+        }
+        receiverRegistered = false
     }
 
     private companion object {

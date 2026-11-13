@@ -38,6 +38,9 @@ pub struct DebugSnapshot {
     pub remote_samples: Option<u16>,
     pub remote_notify_ok: Option<u16>,
     pub remote_notify_drop: Option<u16>,
+    /// Watch gyroscope rate from the stats packet, samples / window, not the
+    /// desktop's all-kind receive rate.
+    pub remote_aim_hz: Option<f64>,
     pub cursor_x: Option<f64>,
     pub cursor_y: Option<f64>,
 }
@@ -92,6 +95,10 @@ impl Follower {
         self.shown = Some(point);
     }
 
+    fn reset(&mut self) {
+        self.shown = None;
+    }
+
     /// Ease toward `target`. Returns the new position when the step is large
     /// enough to send. A step under `min_move_px` leaves `shown` alone. The
     /// next tick retries the same step, so this only settles once the cursor
@@ -129,6 +136,9 @@ pub struct PointerSession {
     last_debug_s: Option<f64>,
     paused: bool,
     dragging: bool,
+    /// False after `on_disconnected` until the next `on_connected`. Starts
+    /// open so unit tests can feed packets without a fake link.
+    link_open: bool,
     history: Vec<(f64, f64, f64)>,
 }
 
@@ -150,6 +160,7 @@ impl PointerSession {
             last_debug_s: None,
             paused: false,
             dragging: false,
+            link_open: true,
             history: Vec::new(),
         }
     }
@@ -162,7 +173,47 @@ impl PointerSession {
         self.config.screen
     }
 
+    /// New BLE session. Drops sequence, clock, filters, cursor history, remote
+    /// stats, and pause. Releases a stuck drag. The 300 ms silence release in
+    /// `tick` still covers a link that goes quiet without a disconnect event.
+    pub fn on_connected(&mut self) -> Vec<CursorAction> {
+        let release = self.force_release_drag();
+        self.stats.reset_link();
+        self.filter_x.reset();
+        self.filter_y.reset();
+        self.follower.reset();
+        self.target = None;
+        self.last_aim_deg = None;
+        self.last_aim_local_s = None;
+        self.paused = false;
+        self.history.clear();
+        self.link_open = true;
+        release
+    }
+
+    /// Explicit disconnect. Releases drag immediately and ignores later
+    /// packets until `on_connected`.
+    pub fn on_disconnected(&mut self) -> Vec<CursorAction> {
+        self.link_open = false;
+        self.target = None;
+        self.last_aim_local_s = None;
+        self.force_release_drag()
+    }
+
+    #[cfg(test)]
+    fn mapped_watch_us(&self, watch_us: u32) -> Option<f64> {
+        self.stats.watch_to_local(watch_us)
+    }
+
+    #[cfg(test)]
+    fn lost_total(&self) -> u64 {
+        self.stats.lost
+    }
+
     pub fn push_packet(&mut self, bytes: &[u8], local_s: f64) -> Vec<CursorAction> {
+        if !self.link_open {
+            return Vec::new();
+        }
         let packet = match decode(bytes) {
             Ok(packet) => packet,
             Err(_) => return Vec::new(),
@@ -174,6 +225,9 @@ impl PointerSession {
             local_s,
             matches!(packet, Packet::Aim { .. }),
         );
+        if timing.duplicate {
+            return Vec::new();
+        }
         match packet {
             Packet::Aim {
                 left_cdeg, up_cdeg, ..
@@ -190,9 +244,11 @@ impl PointerSession {
                 samples,
                 notifies_ok,
                 notifies_drop,
+                window_ms,
                 ..
             } => {
-                self.stats.note_remote(samples, notifies_ok, notifies_drop);
+                self.stats
+                    .note_remote(samples, notifies_ok, notifies_drop, window_ms);
                 Vec::new()
             }
             Packet::Info { .. } | Packet::Unknown { .. } => Vec::new(),
@@ -295,15 +351,22 @@ impl PointerSession {
 
     fn set_paused(&mut self, paused: bool) -> Vec<CursorAction> {
         self.paused = paused;
-        if paused && self.dragging {
-            self.dragging = false;
-            vec![CursorAction::Button {
-                button: Button::Left,
-                down: false,
-            }]
+        if paused {
+            self.force_release_drag()
         } else {
             Vec::new()
         }
+    }
+
+    fn force_release_drag(&mut self) -> Vec<CursorAction> {
+        if !self.dragging {
+            return Vec::new();
+        }
+        self.dragging = false;
+        vec![CursorAction::Button {
+            button: Button::Left,
+            down: false,
+        }]
     }
 
     fn click(&mut self, button: Button, watch_us: u32, local_s: f64) -> Vec<CursorAction> {
@@ -421,8 +484,19 @@ fn snapshot_from(session: &PointerSession, window: &WindowStats, elapsed: f64) -
         remote_samples: session.stats.remote_samples,
         remote_notify_ok: session.stats.remote_notify_ok,
         remote_notify_drop: session.stats.remote_notify_drop,
+        remote_aim_hz: remote_aim_hz(session),
         cursor_x: session.follower.shown.map(|p| p.0),
         cursor_y: session.follower.shown.map(|p| p.1),
+    }
+}
+
+fn remote_aim_hz(session: &PointerSession) -> Option<f64> {
+    let samples = session.stats.remote_samples?;
+    let window_ms = session.stats.remote_window_ms?;
+    if window_ms == 0 {
+        None
+    } else {
+        Some(f64::from(samples) * 1000.0 / f64::from(window_ms))
     }
 }
 
@@ -442,7 +516,7 @@ fn rewind_point(history: &[(f64, f64, f64)], time: f64, fallback: (f64, f64)) ->
 mod tests {
     use super::*;
     use crate::packet::{
-        encode, header, Packet, KIND_AIM, KIND_LEFT_CLICK, KIND_PAUSE, KIND_SCROLL,
+        encode, header, Packet, KIND_AIM, KIND_DRAG, KIND_LEFT_CLICK, KIND_PAUSE, KIND_SCROLL,
     };
 
     fn session() -> PointerSession {
@@ -554,6 +628,111 @@ mod tests {
         });
         let actions = session.push_packet(&packet, 1.0);
         assert_eq!(actions, vec![CursorAction::Scroll { delta_px: -8 }]);
+    }
+
+    #[test]
+    fn historical_click_through_push_packet_keeps_the_touch_time() {
+        // reproduce_stats.py: Aim 1.000s/5.000, Aim 1.100s/5.100, Click 1.020s received 5.120.
+        // The touch must map to 5.020, not the receive time.
+        let mut session = session();
+        session.push_packet(&aim(100, 1_000_000, 0, 0), 5.0);
+        session.push_packet(&aim(101, 1_100_000, 0, 0), 5.1);
+        let click = encode(&Packet::LeftClick {
+            header: header(KIND_LEFT_CLICK, 102, 1_020_000),
+        });
+        session.push_packet(&click, 5.120);
+        let mapped = session.mapped_watch_us(1_020_000).expect("clock anchor");
+        assert!(
+            (mapped - 5.020).abs() < 1e-6,
+            "historical touch maps to receive time {mapped:.6}s; expected 5.020000s"
+        );
+    }
+
+    #[test]
+    fn drag_up_with_an_older_timestamp_does_not_move_the_anchor() {
+        let mut session = session();
+        session.push_packet(&aim(1, 2_000_000, 0, 0), 8.0);
+        let down = encode(&Packet::Drag {
+            header: header(KIND_DRAG, 2, 1_650_000),
+            down: true,
+        });
+        session.push_packet(&down, 8.040);
+        let mapped = session.mapped_watch_us(1_650_000).unwrap();
+        assert!(
+            (mapped - 7.650).abs() < 1e-6,
+            "350 ms hold maps to {mapped:.6}, expected 7.650"
+        );
+        session.push_packet(&aim(3, 2_050_000, 0, 0), 8.050);
+        let later = session.mapped_watch_us(2_050_000).unwrap();
+        assert!(
+            (later - 8.050).abs() < 1e-3,
+            "aim after a historical drag lost the anchor: {later:.6}"
+        );
+    }
+
+    #[test]
+    fn new_connection_sequence_zero_is_not_packet_loss() {
+        // Last packet of the old link is sequence 1000. The watch resets to 0.
+        // Without a connection boundary this is reported as 64,535 losses.
+        let mut session = session();
+        session.push_packet(&aim(1000, 1_000_000, 0, 0), 5.0);
+        let _ = session.on_connected();
+        session.push_packet(&aim(0, 11_000_000, 0, 0), 15.0);
+        assert_eq!(
+            session.lost_total(),
+            0,
+            "reconnection is counted as {} missing packets",
+            session.lost_total()
+        );
+    }
+
+    #[test]
+    fn real_sequence_and_timestamp_wrap_stay_continuous() {
+        let mut session = session();
+        let near = u32::MAX - 4_999;
+        session.push_packet(&aim(65535, near, 0, 0), 10.0);
+        session.push_packet(&aim(0, 5_000, 0, 0), 10.01);
+        assert_eq!(session.lost_total(), 0);
+        let mapped = session.mapped_watch_us(5_000).unwrap();
+        assert!(
+            (mapped - 10.01).abs() < 1e-3,
+            "wrapped timestamp mapped to {mapped}"
+        );
+    }
+
+    #[test]
+    fn duplicate_click_does_not_fire_twice() {
+        let mut session = session();
+        let click = encode(&Packet::LeftClick {
+            header: header(KIND_LEFT_CLICK, 7, 1_000),
+        });
+        let first = session.push_packet(&click, 1.0);
+        let second = session.push_packet(&click, 1.01);
+        assert_eq!(first.len(), 3);
+        assert!(second.is_empty());
+    }
+
+    #[test]
+    fn disconnect_releases_drag_and_drops_a_late_click() {
+        let mut session = session();
+        session.push_packet(&aim(1, 1_000_000, 0, 0), 3.0);
+        let down = encode(&Packet::Drag {
+            header: header(KIND_DRAG, 2, 1_000_000),
+            down: true,
+        });
+        session.push_packet(&down, 3.01);
+        let released = session.on_disconnected();
+        assert!(matches!(
+            released.last(),
+            Some(CursorAction::Button {
+                button: Button::Left,
+                down: false
+            })
+        ));
+        let click = encode(&Packet::LeftClick {
+            header: header(KIND_LEFT_CLICK, 3, 1_000_000),
+        });
+        assert!(session.push_packet(&click, 3.02).is_empty());
     }
 
     #[test]

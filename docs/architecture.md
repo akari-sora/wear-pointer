@@ -46,7 +46,9 @@ Clicks carry the finger-down timestamp. The desktop keeps one second of cursor h
 
 ## Bluetooth roles
 
-`PointerTransport` on the watch and `PointerLink` on the desktop are the swap point. Packet bytes do not change. Details and the reason the desktop peripheral side is still a stub: [fallback-transport.md](fallback-transport.md).
+`PointerTransport` on the watch and `PointerLink` on the desktop are the swap point. The desktop link emits `Connected` / `Packet` / `Disconnected` with an epoch. A new epoch resets sequence tracking, the clock anchor, filters, and cursor history so a watch sequence restart is not thousands of lost packets. Packet bytes do not change. The desktop peripheral side is still a stub: [fallback-transport.md](fallback-transport.md).
+
+Pointer notifications are notifications, not indications. The watch waits for `onNotificationSent` before the next one. Aim samples coalesce; clicks and drags stay in a queue. Historical finger-down times are mapped from the clock anchor and do not move it.
 
 ## What is unit-tested
 

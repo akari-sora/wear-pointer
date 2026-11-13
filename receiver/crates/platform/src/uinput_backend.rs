@@ -16,6 +16,9 @@ pub struct UinputBackend {
     device: VirtualDevice,
     screen: Screen,
     last: Option<(f64, f64)>,
+    pending_x: f64,
+    pending_y: f64,
+    pending_scroll: f64,
 }
 
 impl UinputBackend {
@@ -39,6 +42,9 @@ impl UinputBackend {
             device,
             screen,
             last: None,
+            pending_x: 0.0,
+            pending_y: 0.0,
+            pending_scroll: 0.0,
         })
     }
 
@@ -53,8 +59,8 @@ impl PointerBackend for UinputBackend {
             self.last = Some((x, y));
             return Ok(());
         };
-        let dx = (x - prev_x).round() as i32;
-        let dy = (y - prev_y).round() as i32;
+        let dx = crate::residual::take_steps(&mut self.pending_x, x - prev_x);
+        let dy = crate::residual::take_steps(&mut self.pending_y, y - prev_y);
         self.last = Some((x, y));
         if dx == 0 && dy == 0 {
             return Ok(());
@@ -91,11 +97,10 @@ impl PointerBackend for UinputBackend {
     }
 
     fn scroll(&mut self, delta_px: i32) -> Result<()> {
-        if delta_px == 0 {
-            return Ok(());
-        }
-        // REL_WHEEL is in detent steps. Map about 30 px to one step.
-        let steps = delta_px / 30;
+        // REL_WHEEL is in detent steps. About 30 px is one step; the remainder
+        // stays so a stream of smaller deltas still scrolls.
+        let steps =
+            crate::residual::take_steps(&mut self.pending_scroll, f64::from(delta_px) / 30.0);
         if steps == 0 {
             return Ok(());
         }

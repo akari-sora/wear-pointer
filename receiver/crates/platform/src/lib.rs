@@ -6,6 +6,8 @@
 //! compile only on those targets and were not built in the Linux checkout.
 
 mod log_backend;
+#[cfg(any(test, feature = "uinput"))]
+mod residual;
 
 #[cfg(target_os = "linux")]
 mod hyprland;

@@ -28,7 +28,11 @@ This tree has **not** been run on a Watch7 or in a Hyprland session. See [Curren
 | Desktop-as-peripheral fallback | watch side is written; desktop `--role peripheral` exits with an error | [fallback](docs/fallback-transport.md) |
 | Pairing whitelist | no | TODO. The receiver accepts the first matching peripheral. Quit it when you are not using it. |
 
-Latency printed by `--debug` is relative to the fastest packet in the session, not a synchronized clock. Acceptance numbers in [docs/acceptance-metrics.md](docs/acceptance-metrics.md) are targets, not results.
+`--debug` latency is relative to the fastest packet, stamped when the notification is read. It is not a pure radio delay. `aim_hz` uses the watch stats window; `rx` counts every packet kind. Numbers in [docs/acceptance-metrics.md](docs/acceptance-metrics.md) are targets, not measurements.
+
+`.gitlab-ci.yml` runs the Rust and Android jobs only on a runner tagged `r9700x-docker`. That tag is **unverified** for this project: enable the self-hosted runner and confirm the tag. No pipeline has been observed from this checkout. Do not drop the tag to use GitLab shared runners.
+
+Stop on the watch is the Stop button. If it did not run: `adb shell am force-stop dev.wearpointer` (`-s <serial>` when several devices are attached).
 
 ## Build the receiver
 

@@ -18,6 +18,7 @@ import android.os.SystemClock
 import android.util.Log
 import dev.wearpointer.ble.LinkListener
 import dev.wearpointer.ble.PointerTransport
+import dev.wearpointer.ble.SendCounters
 import dev.wearpointer.ble.WatchCentral
 import dev.wearpointer.ble.WatchPeripheral
 import dev.wearpointer.motion.AimTracker
@@ -66,7 +67,6 @@ object PointerRuntime : SensorEventListener, LinkListener {
     private var paused = false
     private var sequence = 0
     private var samples = 0
-    private var sent = 0
     private var dropped = 0
     private var windowStartNs = 0L
     private var sensorHzX10 = 0
@@ -86,7 +86,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
         this.thread = thread
         handler = Handler(thread.looper)
         sensorManager = app.getSystemService(SensorManager::class.java)
-        acquireWakeLock(app)
+        holdWakeLock()
         val role = loadRole(app)
         _state.update { it.copy(role = role, bluetoothGranted = hasPermissions(app)) }
         handler?.post {
@@ -114,8 +114,56 @@ object PointerRuntime : SensorEventListener, LinkListener {
     fun togglePause() {
         handler?.post {
             paused = !paused
+            if (paused) releaseWakeLock() else holdWakeLock()
             _state.update { it.copy(paused = paused) }
             send(Packets.pause(nextSequence(), nowUs(), paused), reliable = true)
+        }
+    }
+
+    /**
+     * Unregisters sensors, stops advertising, closes the GATT server, releases
+     * the wake lock, and stops the service. Idempotent.
+     * If this process is killed without running this path:
+     * `adb shell am force-stop dev.wearpointer`
+     */
+    @Synchronized
+    fun stop() {
+        val context = appContext
+        teardown()
+        context?.stopService(Intent(context, PointerService::class.java))
+    }
+
+    @Synchronized
+    fun teardown() {
+        if (!started && transport == null && wakeLock == null && thread == null) {
+            _state.update { it.copy(status = "Stopped", connected = false, paused = false) }
+            return
+        }
+        started = false
+        paused = false
+        sensorManager?.unregisterListener(this)
+        try {
+            transport?.stop()
+        } catch (err: Exception) {
+            Log.w(TAG, "transport stop", err)
+        }
+        transport = null
+        releaseWakeLock()
+        wakeLock = null
+        thread?.quitSafely()
+        thread = null
+        handler = null
+        sequence = 0
+        samples = 0
+        _state.update {
+            it.copy(
+                status = "Stopped",
+                connected = false,
+                paused = false,
+                samplesPerSec = 0,
+                sentPerSec = 0,
+                droppedPerSec = 0,
+            )
         }
     }
 
@@ -191,6 +239,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
     }
 
     override fun onSensorChanged(event: SensorEvent) {
+        if (!started) return
         when (event.sensor.type) {
             Sensor.TYPE_GRAVITY -> {
                 gravity[0] = event.values[0]
@@ -221,20 +270,36 @@ object PointerRuntime : SensorEventListener, LinkListener {
         if (elapsed < 1_000_000_000L && !statsRequested) return
         val windowMs = (elapsed / 1_000_000L).toInt().coerceIn(1, 65_535)
         sensorHzX10 = (samples * 10_000L / (elapsed / 1_000_000L).coerceAtLeast(1)).toInt().coerceIn(0, 65_535)
+        val counts = transport?.takeCounters() ?: SendCounters()
         if (transport?.ready == true) {
             send(
-                Packets.stats(nextSequence(), nowUs(), samples, sent, dropped, windowMs),
+                Packets.stats(
+                    nextSequence(),
+                    nowUs(),
+                    samples,
+                    counts.completed,
+                    counts.rejected,
+                    windowMs,
+                ),
                 reliable = true,
             )
             infoTicks++
             if (infoTicks == 1 || infoTicks % 60 == 0) sendInfo()
         }
+        if (!paused) holdWakeLock()
         _state.update {
-            it.copy(samplesPerSec = samples, sentPerSec = sent, droppedPerSec = dropped)
+            it.copy(
+                samplesPerSec = samples,
+                sentPerSec = counts.completed,
+                droppedPerSec = counts.rejected + dropped,
+            )
         }
-        Log.i(TAG, "samples=$samples sent=$sent drop=$dropped windowMs=$windowMs")
+        Log.i(
+            TAG,
+            "samples=$samples accepted=${counts.accepted} completed=${counts.completed} " +
+                "rejected=${counts.rejected} coalesced=${counts.coalesced} notReady=$dropped windowMs=$windowMs",
+        )
         samples = 0
-        sent = 0
         dropped = 0
         windowStartNs = nowNs
         statsRequested = false
@@ -261,7 +326,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
             dropped++
             return
         }
-        if (transport.send(packet, reliable)) sent++ else dropped++
+        if (!transport.send(packet, reliable)) dropped++
     }
 
     private fun nextSequence(): Int {
@@ -310,12 +375,21 @@ object PointerRuntime : SensorEventListener, LinkListener {
     }
 
     @SuppressLint("WakelockTimeout")
-    private fun acquireWakeLock(context: Context) {
+    private fun holdWakeLock() {
+        if (!started) return
+        val context = appContext ?: return
         val power = context.getSystemService(PowerManager::class.java) ?: return
-        val lock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wear-pointer:sensors")
-        lock.setReferenceCounted(false)
-        lock.acquire()
-        wakeLock = lock
+        val lock = wakeLock ?: power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wear-pointer:sensors").also {
+            it.setReferenceCounted(false)
+            wakeLock = it
+        }
+        if (lock.isHeld) lock.release()
+        lock.acquire(WAKE_MS)
+    }
+
+    private fun releaseWakeLock() {
+        val lock = wakeLock ?: return
+        if (lock.isHeld) lock.release()
     }
 
     private fun refreshPermissionFlag(context: Context) {
@@ -345,5 +419,6 @@ object PointerRuntime : SensorEventListener, LinkListener {
     private const val PREFS = "wear-pointer"
     private const val KEY_ROLE = "role"
     private const val SAMPLE_US = 10_000
+    private const val WAKE_MS = 10 * 60 * 1000L
     private const val TAG = "wear-pointer"
 }

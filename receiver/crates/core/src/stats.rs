@@ -15,9 +15,14 @@ pub struct Timing {
     /// Seconds of watch time since the previous aim. `None` when `fresh`.
     pub watch_dt_s: Option<f64>,
     /// Milliseconds above the fastest packet seen on this link.
+    /// Historical events (a click older than the anchor) report 0 and do not
+    /// move the anchor, so they cannot mint a new "fastest packet".
     pub latency_ms: f64,
     /// Packets missing between this sequence and the previous one.
     pub lost: u32,
+    /// Same sequence as the previous packet. The session must not repeat the
+    /// click or drag.
+    pub duplicate: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -40,6 +45,7 @@ pub struct LinkStats {
     pub remote_samples: Option<u16>,
     pub remote_notify_ok: Option<u16>,
     pub remote_notify_drop: Option<u16>,
+    pub remote_window_ms: Option<u16>,
 }
 
 impl Default for LinkStats {
@@ -63,6 +69,7 @@ impl Default for LinkStats {
             remote_samples: None,
             remote_notify_ok: None,
             remote_notify_drop: None,
+            remote_window_ms: None,
         }
     }
 }
@@ -81,19 +88,24 @@ impl LinkStats {
         Self::default()
     }
 
-    /// `is_aim` selects the dt used by the 1€ filter. Every packet updates
-    /// loss, the shared clock, and the latency estimate.
+    /// `is_aim` selects the dt used by the 1€ filter.
+    ///
+    /// Sequence loss is updated for every packet. The shared clock moves only
+    /// forward: a signed wrap-aware delta below zero is a historical event time
+    /// (finger-down, drag release) and is mapped later by [`Self::watch_to_local`]
+    /// without rewriting the anchor or the min-offset. A real `u32` wrap of less
+    /// than 2^31 microseconds (about 35.8 minutes) still looks forward.
     pub fn observe(&mut self, sequence: u16, watch_us: u32, local_s: f64, is_aim: bool) -> Timing {
-        let lost = match self.last_seq {
+        let (lost, duplicate) = match self.last_seq {
             Some(prev) => {
                 let gap = sequence.wrapping_sub(prev);
                 if gap == 0 {
-                    0
+                    (0, true)
                 } else {
-                    u32::from(gap) - 1
+                    (u32::from(gap) - 1, false)
                 }
             }
-            None => 0,
+            None => (0, false),
         };
         self.last_seq = Some(sequence);
         self.packets += 1;
@@ -101,27 +113,33 @@ impl LinkStats {
         self.window_packets += 1;
         self.window_lost += lost;
 
-        if let Some(prev) = self.last_watch_us {
-            self.unwrapped_us = self
-                .unwrapped_us
-                .wrapping_add(u64::from(watch_us.wrapping_sub(prev)));
-        } else {
-            self.unwrapped_us = u64::from(watch_us);
-        }
-        self.last_watch_us = Some(watch_us);
-        self.last_local_s = Some(local_s);
+        let historical = match self.last_watch_us {
+            Some(prev) => (watch_us.wrapping_sub(prev) as i32) < 0,
+            None => false,
+        };
+        let mut latency_ms = 0.0;
+        if !historical {
+            if let Some(prev) = self.last_watch_us {
+                let delta = watch_us.wrapping_sub(prev) as i32;
+                self.unwrapped_us = self.unwrapped_us.wrapping_add(u64::from(delta as u32));
+            } else {
+                self.unwrapped_us = u64::from(watch_us);
+            }
+            self.last_watch_us = Some(watch_us);
+            self.last_local_s = Some(local_s);
 
-        let watch_s = self.unwrapped_us as f64 / 1_000_000.0;
-        let sample_offset = local_s - watch_s;
-        self.offset_s = Some(match self.offset_s {
-            Some(current) => current.min(sample_offset),
-            None => sample_offset,
-        });
-        let latency_ms = (sample_offset - self.offset_s.unwrap_or(sample_offset)) * 1000.0;
-        self.latency_sum_ms += latency_ms;
-        self.latency_min_ms = self.latency_min_ms.min(latency_ms);
-        self.latency_max_ms = self.latency_max_ms.max(latency_ms);
-        self.latency_count += 1;
+            let watch_s = self.unwrapped_us as f64 / 1_000_000.0;
+            let sample_offset = local_s - watch_s;
+            self.offset_s = Some(match self.offset_s {
+                Some(current) => current.min(sample_offset),
+                None => sample_offset,
+            });
+            latency_ms = (sample_offset - self.offset_s.unwrap_or(sample_offset)) * 1000.0;
+            self.latency_sum_ms += latency_ms;
+            self.latency_min_ms = self.latency_min_ms.min(latency_ms);
+            self.latency_max_ms = self.latency_max_ms.max(latency_ms);
+            self.latency_count += 1;
+        }
 
         let fresh = match self.last_aim_local_s {
             Some(prev) => local_s - prev > FRESH_GAP_S,
@@ -143,7 +161,31 @@ impl LinkStats {
             watch_dt_s,
             latency_ms,
             lost,
+            duplicate,
         }
+    }
+
+    /// Drop sequence, clock, and remote-rate state at a connection boundary.
+    /// Lifetime `packets` / `lost` stay so a later report can still sum real
+    /// loss. The in-progress window is cleared so the boundary itself is not
+    /// a gap.
+    pub fn reset_link(&mut self) {
+        self.last_seq = None;
+        self.last_watch_us = None;
+        self.unwrapped_us = 0;
+        self.offset_s = None;
+        self.last_aim_us = None;
+        self.last_aim_local_s = None;
+        self.window_packets = 0;
+        self.window_lost = 0;
+        self.latency_sum_ms = 0.0;
+        self.latency_min_ms = f64::MAX;
+        self.latency_max_ms = 0.0;
+        self.latency_count = 0;
+        self.remote_samples = None;
+        self.remote_notify_ok = None;
+        self.remote_notify_drop = None;
+        self.remote_window_ms = None;
     }
 
     /// Map a watch timestamp near the latest packet onto local seconds.
@@ -182,10 +224,17 @@ impl LinkStats {
         stats
     }
 
-    pub fn note_remote(&mut self, samples: u16, notifies_ok: u16, notifies_drop: u16) {
+    pub fn note_remote(
+        &mut self,
+        samples: u16,
+        notifies_ok: u16,
+        notifies_drop: u16,
+        window_ms: u16,
+    ) {
         self.remote_samples = Some(samples);
         self.remote_notify_ok = Some(notifies_ok);
         self.remote_notify_drop = Some(notifies_drop);
+        self.remote_window_ms = Some(window_ms);
     }
 }
 

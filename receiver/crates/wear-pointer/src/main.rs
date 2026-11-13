@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
-use wear_pointer_bluetooth::{CentralLink, PeripheralLink, PointerLink};
+use wear_pointer_bluetooth::{CentralLink, LinkEvent, PeripheralLink, PointerLink};
 use wear_pointer_core::{CursorAction, PointerSession, Screen, SessionConfig, CURSOR_HZ};
 use wear_pointer_platform::{LogBackend, PointerBackend};
 
@@ -45,10 +45,12 @@ fn main() -> Result<()> {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
-        return rt.block_on(link.run(tx));
+        return rt.block_on(link.run(tx, Instant::now()));
     }
 
-    let (tx, rx) = mpsc::channel::<Vec<u8>>();
+    let start = Instant::now();
+    let (tx, rx) = mpsc::channel::<LinkEvent>();
+    let clock = start;
     thread::Builder::new()
         .name("wear-pointer-bt".into())
         .spawn(move || {
@@ -70,7 +72,7 @@ fn main() -> Result<()> {
                         return;
                     }
                 };
-                if let Err(err) = link.run(tx).await {
+                if let Err(err) = link.run(tx, clock).await {
                     eprintln!("wear-pointer: {err:#}");
                 }
             });
@@ -81,8 +83,8 @@ fn main() -> Result<()> {
     let mut session = PointerSession::new(args.config);
     session.set_screen(backend.screen());
     let frame = Duration::from_secs_f64(1.0 / f64::from(CURSOR_HZ));
-    let start = Instant::now();
     let mut next = Instant::now();
+    let mut link_epoch = 0u64;
     eprintln!(
         "wear-pointer: cursor loop at {CURSOR_HZ} Hz. Ctrl-C to quit. Pairing whitelist is not implemented."
     );
@@ -91,9 +93,33 @@ fn main() -> Result<()> {
         if screen != session.screen() {
             session.set_screen(screen);
         }
-        while let Ok(packet) = rx.try_recv() {
-            let now = start.elapsed().as_secs_f64();
-            for action in session.push_packet(&packet, now) {
+        while let Ok(event) = rx.try_recv() {
+            let actions = match event {
+                LinkEvent::Connected { epoch, device } => {
+                    link_epoch = epoch;
+                    eprintln!("wear-pointer: link up epoch={epoch} {device}");
+                    session.on_connected()
+                }
+                LinkEvent::Disconnected { epoch, reason } => {
+                    if epoch == link_epoch {
+                        link_epoch = 0;
+                    }
+                    eprintln!("wear-pointer: link down epoch={epoch} ({reason})");
+                    session.on_disconnected()
+                }
+                LinkEvent::Packet {
+                    epoch,
+                    received_at_s,
+                    bytes,
+                } if epoch == link_epoch => session.push_packet(&bytes, received_at_s),
+                LinkEvent::Packet { epoch, .. } => {
+                    eprintln!(
+                        "wear-pointer: dropped packet from epoch {epoch}, live is {link_epoch}"
+                    );
+                    Vec::new()
+                }
+            };
+            for action in actions {
                 apply(&mut *backend, action)?;
             }
         }
@@ -109,12 +135,15 @@ fn main() -> Result<()> {
                     _ => "-".to_string(),
                 };
                 let remote = match (
+                    debug.remote_aim_hz,
                     debug.remote_samples,
                     debug.remote_notify_ok,
                     debug.remote_notify_drop,
                 ) {
-                    (Some(samples), Some(ok), Some(drop)) => {
-                        format!(" watch_samples={samples} notify_ok={ok} notify_drop={drop}")
+                    (Some(aim_hz), Some(samples), Some(ok), Some(drop)) => {
+                        format!(
+                            " aim_hz={aim_hz:.1} watch_samples={samples} notify_ok={ok} notify_drop={drop}"
+                        )
                     }
                     _ => String::new(),
                 };

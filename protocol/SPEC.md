@@ -25,7 +25,9 @@ The watch advertises the service (low latency, connectable). The 128-bit service
 | Pointer | Read, Notify | Watch sends packets |
 | Control | Write, Write Without Response | Desktop sends a command byte |
 
-The desktop subscribes to Pointer by writing the Client Characteristic Configuration descriptor (`00002902-0000-1000-8000-00805f9b34fb`) to `0x0001`.
+The desktop subscribes to Pointer by writing the Client Characteristic Configuration descriptor (`00002902-0000-1000-8000-00805f9b34fb`) to `0x0001` (notifications). The watch does not set `PROPERTY_INDICATE` and always passes `confirm = false` to `notifyCharacteristicChanged`. A `true` confirm bit would be an indication, which this subscription does not enable.
+
+The watch sends at most one notification per connected central until `onNotificationSent`. A newer aim sample replaces an aim that has not started transmitting. Clicks and drags stay queued and are not replaced by aim traffic. `notifies_ok` in a stats packet is the number of notifications whose callback reported success in the window. `notifies_drop` is API rejections plus callback failures. Aims coalesced while one was in flight are counted in logcat (`coalesced=`), not as radio loss.
 
 ### Role: desktop is peripheral (fallback)
 

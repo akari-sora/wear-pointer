@@ -24,6 +24,8 @@ class MainActivity : ComponentActivity() {
             RemoteScreen(
                 onRequestPermissions = { requestBlePermissions() },
                 onRole = { PointerRuntime.setRole(it) },
+                onStop = { PointerRuntime.stop() },
+                onStart = { startPointer() },
             )
         }
         if (hasBlePermissions()) {

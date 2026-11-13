@@ -108,9 +108,23 @@ cargo run -p wear-pointer --features uinput -- --backend uinput --debug
 
 That backend is relative. The first sample sets the origin and does not jump. It is a worse fit for absolute aim than Hyprland.
 
-## Quit
+## Stop the watch
 
-There is no pairing whitelist (TODO). Any nearby device that speaks this protocol can move the cursor while the receiver is running. Quit it when you stop.
+The on-watch **Stop** button, and the notification Stop action, unregister sensors, stop advertising, close the GATT server, release the partial wake lock, and stop the service. Pause releases the wake lock and leaves sensors registered so Play still has a heading. Closing the screen is not Stop.
+
+If Stop did not run, from a host that already has the watch on adb:
+
+```bash
+adb shell am force-stop dev.wearpointer
+```
+
+With more than one device, `adb -s <watch-serial> shell am force-stop dev.wearpointer`.
+
+## Quit the receiver
+
+There is no pairing whitelist (TODO). The desktop connects only when the advertisement contains the service UUID. That is not authentication. Quit the receiver when you are not using it.
+
+`--debug` latency is the excess over the fastest packet, stamped when the notification is read. It includes host scheduling after BlueZ and is not a synchronized end-to-end delay. `aim_hz` is the watch gyroscope count divided by the stats window. `rx` counts every packet kind per second.
 
 ## What to bring back
 

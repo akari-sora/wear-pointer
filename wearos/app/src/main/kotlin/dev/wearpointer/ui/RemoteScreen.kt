@@ -45,6 +45,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 fun RemoteScreen(
     onRequestPermissions: () -> Unit,
     onRole: (PointerRuntime.Role) -> Unit,
+    onStop: () -> Unit,
+    onStart: () -> Unit,
 ) {
     val ui by PointerRuntime.state.collectAsState()
     val focus = remember { FocusRequester() }
@@ -113,6 +115,11 @@ fun RemoteScreen(
                     }
                 }
             }
+            if (ui.status == "Stopped") {
+                ActionButton("Start", onClick = onStart)
+            } else if (ui.bluetoothGranted) {
+                ActionButton("Stop", onClick = onStop)
+            }
             val roleLabel = if (ui.role == PointerRuntime.Role.WATCH_ADVERTISES) {
                 "Role: watch advertises"
             } else {
@@ -166,24 +173,34 @@ private fun ClickPad(paused: Boolean, connected: Boolean, modifier: Modifier) {
                     awaitFirstDown()
                     pressing = true
                     val downNs = SystemClock.elapsedRealtimeNanos()
-                    val released = withTimeoutOrNull(Packets.HOLD_TO_DRAG_MS) {
-                        waitForUpOrCancellation()
-                    }
-                    if (released != null) {
+                    // Timeout and a cancelled pointer both make withTimeoutOrNull
+                    // return null. Remember whether waitForUp actually finished.
+                    var up: androidx.compose.ui.input.pointer.PointerInputChange? = null
+                    val timedOut = withTimeoutOrNull(Packets.HOLD_TO_DRAG_MS) {
+                        up = waitForUpOrCancellation()
+                        true
+                    } == null
+                    var holding = false
+                    try {
+                        if (up != null) {
+                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            PointerRuntime.leftClick(downNs)
+                        } else if (timedOut) {
+                            holding = true
+                            dragging = true
+                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                            PointerRuntime.drag(down = true, eventNs = downNs)
+                            waitForUpOrCancellation()
+                        }
+                    } finally {
+                        if (holding) {
+                            dragging = false
+                            PointerRuntime.drag(
+                                down = false,
+                                eventNs = SystemClock.elapsedRealtimeNanos() - 50_000_000L,
+                            )
+                        }
                         pressing = false
-                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                        PointerRuntime.leftClick(downNs)
-                    } else {
-                        dragging = true
-                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                        PointerRuntime.drag(down = true, eventNs = downNs)
-                        waitForUpOrCancellation()
-                        dragging = false
-                        pressing = false
-                        PointerRuntime.drag(
-                            down = false,
-                            eventNs = SystemClock.elapsedRealtimeNanos() - 50_000_000L,
-                        )
                     }
                 }
             },

@@ -1,0 +1,68 @@
+# Self-hosted runner only. The tag name `r9700x-docker` is UNVERIFIED:
+# the runner must be enabled for this project and the tag confirmed before a
+# pipeline can start. Jobs carry the tag so GitLab shared runners do not pick
+# them up. Do not remove the tag to "make CI run" on shared runners.
+#
+# This file has not been executed. A green commit is not evidence the jobs passed.
+
+default:
+  tags:
+    - r9700x-docker
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+stages:
+  - test
+
+rust:
+  stage: test
+  tags:
+    - r9700x-docker
+  image: rust:1-bookworm
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends pkg-config libdbus-1-dev
+  script:
+    - cd receiver
+    - set -o pipefail
+    - cargo test --workspace 2>&1 | tee rust-test.log
+    - cargo build -p wear-pointer --release
+    - cargo build -p wear-pointer --features uinput
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - receiver/rust-test.log
+
+android:
+  stage: test
+  tags:
+    - r9700x-docker
+  image: eclipse-temurin:21-jdk-jammy
+  variables:
+    ANDROID_HOME: /opt/android-sdk
+    ANDROID_SDK_ROOT: /opt/android-sdk
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends wget unzip ca-certificates
+    - mkdir -p "$ANDROID_HOME/cmdline-tools"
+    - wget -q -O /tmp/cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+    - unzip -q /tmp/cmdtools.zip -d /tmp/cmdtools
+    - mv /tmp/cmdtools/cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
+    - yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" --licenses >/dev/null || true
+    - yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+  script:
+    - cd wearos
+    - chmod +x ./gradlew
+    - ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - wearos/app/build/reports/tests/testDebugUnitTest/
+      - wearos/app/build/outputs/apk/debug/*.apk
+    reports:
+      junit: wearos/app/build/test-results/testDebugUnitTest/*.xml

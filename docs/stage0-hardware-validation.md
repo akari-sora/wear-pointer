@@ -110,7 +110,9 @@ That backend is relative. The first sample sets the origin and does not jump. It
 
 ## Stop the watch
 
-The on-watch **Stop** button, and the notification Stop action, unregister sensors, stop advertising, close the GATT server, release the partial wake lock, and stop the service. Pause releases the wake lock and leaves sensors registered so Play still has a heading. Closing the screen is not Stop.
+The on-watch **Stop** button, and the notification Stop action, unregister sensors, stop advertising, close the GATT server, release the partial wake lock, and stop the service. Pause means **tracks while awake**: the wake lock is released, sensors stay registered, and aim packets stop. If the gyro timestamp jumps by more than half a second on resume, the watch recenters, because non-wakeup sensors can drop samples while the CPU is suspended. Press Center if the cursor is still off. Closing the screen is not Stop.
+
+A drag-up that the stack rejects is retried. If the callback fails or times out, the watch drops the Bluetooth link instead of sending the drag again. The desktop releases the mouse button on that disconnect. The 300 ms no-aim rule does not cover a lost drag-up while aim packets keep arriving.
 
 If Stop did not run, from a host that already has the watch on adb:
 

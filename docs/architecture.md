@@ -48,7 +48,9 @@ Clicks carry the finger-down timestamp. The desktop keeps one second of cursor h
 
 `PointerTransport` on the watch and `PointerLink` on the desktop are the swap point. The desktop link emits `Connected` / `Packet` / `Disconnected` with an epoch. A new epoch resets sequence tracking, the clock anchor, filters, and cursor history so a watch sequence restart is not thousands of lost packets. Packet bytes do not change. The desktop peripheral side is still a stub: [fallback-transport.md](fallback-transport.md).
 
-Pointer notifications are notifications, not indications. The watch waits for `onNotificationSent` before the next one. Aim samples coalesce; clicks and drags stay in a queue. Historical finger-down times are mapped from the clock anchor and do not move it.
+Pointer notifications are notifications, not indications. The watch waits for `onNotificationSent` before the next one. The sequence number is written at that hand-off, in send order. A newer aim replaces only the queued aim at the tail, so a click already behind it is not reordered, and a coalesced aim never consumes a sequence. Center and Pause drop aims still waiting; Stop clears the queue. An API rejection retries the same bytes a few times. A callback failure or timeout does not resend (the central may already have seen a click) and drops the link so the desktop releases buttons. A lost drag-up while later aims keep arriving does not trip the 300 ms no-aim release; the link drop is what releases the button.
+
+Pause means the watch tracks while awake: the wake lock is released, the sensor listener stays, and no aim is sent. On resume, a gyro gap longer than 500 ms means samples were dropped while the CPU was down, so the watch recenters and asks you to press Center if the cursor is off.
 
 ## What is unit-tested
 

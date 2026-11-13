@@ -20,6 +20,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
 import dev.wearpointer.proto.Packets
@@ -45,6 +47,8 @@ class WatchPeripheral(
     private val lock = Any()
     private var callbacksLeft = 0
     private var flightOk = true
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val notifyTimeout = Runnable { onNotifyTimeout() }
     private var server: BluetoothGattServer? = null
     private var advertiser: BluetoothLeAdvertiser? = null
     private var pointerChar: BluetoothGattCharacteristic? = null
@@ -113,16 +117,17 @@ class WatchPeripheral(
         }
 
         override fun onNotificationSent(device: BluetoothDevice, status: Int) {
-            val next = synchronized(lock) {
+            val step = synchronized(lock) {
                 callbacksLeft = (callbacksLeft - 1).coerceAtLeast(0)
                 flightOk = flightOk && status == BluetoothGatt.GATT_SUCCESS
                 if (callbacksLeft > 0) {
-                    null
+                    OutboundQueue.Transmit.Idle
                 } else {
+                    mainHandler.removeCallbacks(notifyTimeout)
                     queue.onFinished(flightOk)
                 }
             }
-            if (next != null) transmit(next)
+            dispatch(step)
         }
 
         override fun onCharacteristicReadRequest(
@@ -270,9 +275,18 @@ class WatchPeripheral(
     @SuppressLint("MissingPermission")
     override fun send(packet: ByteArray, reliable: Boolean): Boolean {
         if (!ready) return false
-        val next = synchronized(lock) { queue.enqueue(packet) }
-        if (next != null) transmit(next)
+        val step = synchronized(lock) { queue.enqueue(packet) }
+        dispatch(step)
         return true
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun dispatch(step: OutboundQueue.Transmit) {
+        when (step) {
+            is OutboundQueue.Transmit.Send -> transmit(step.packet)
+            OutboundQueue.Transmit.DropLink -> dropLink("notify failed")
+            OutboundQueue.Transmit.Idle -> Unit
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -281,8 +295,8 @@ class WatchPeripheral(
         val characteristic = pointerChar
         val devices = subscribed.toList()
         if (server == null || characteristic == null || devices.isEmpty()) {
-            val next = synchronized(lock) { queue.onApiRejected() }
-            if (next != null) transmit(next)
+            val step = synchronized(lock) { queue.onApiRejected() }
+            dispatch(step)
             return
         }
         var accepted = 0
@@ -292,17 +306,47 @@ class WatchPeripheral(
             if (status == BluetoothStatusCodes.SUCCESS) accepted++
             else Log.w(TAG, "notify status $status")
         }
-        val next = synchronized(lock) {
+        val step = synchronized(lock) {
             callbacksLeft = accepted
             flightOk = accepted > 0
             if (accepted == 0) {
+                mainHandler.removeCallbacks(notifyTimeout)
                 queue.onApiRejected()
             } else {
                 queue.markAccepted()
-                null
+                mainHandler.removeCallbacks(notifyTimeout)
+                mainHandler.postDelayed(notifyTimeout, NOTIFY_TIMEOUT_MS)
+                OutboundQueue.Transmit.Idle
             }
         }
-        if (next != null) transmit(next)
+        dispatch(step)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun onNotifyTimeout() {
+        val step = synchronized(lock) { queue.onTimeout() }
+        if (step is OutboundQueue.Transmit.DropLink) {
+            dropLink("notify callback timed out")
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun dropLink(reason: String) {
+        Log.w(TAG, reason)
+        mainHandler.removeCallbacks(notifyTimeout)
+        val devices = subscribed.toList()
+        subscribed.clear()
+        synchronized(lock) { queue.clear() }
+        for (device in devices) {
+            try {
+                server?.cancelConnection(device)
+            } catch (err: Exception) {
+                Log.w(TAG, "cancelConnection", err)
+            }
+        }
+        listener.onLinkFailed(reason)
+        listener.onConnectionChanged(false)
+        if (running && radioOn) restartAdvertising()
     }
 
     override fun takeCounters(): SendCounters {
@@ -356,5 +400,6 @@ class WatchPeripheral(
 
     private companion object {
         const val TAG = "wear-pointer"
+        const val NOTIFY_TIMEOUT_MS = 1_000L
     }
 }

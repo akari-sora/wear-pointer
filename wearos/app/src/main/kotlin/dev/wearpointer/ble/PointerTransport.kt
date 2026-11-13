@@ -37,4 +37,7 @@ interface LinkListener {
     fun onStatus(text: String)
     fun onPeripheralUnsupported(reason: String)
     fun onStatsRequested()
+
+    /** The notify path gave up. The implementation should drop the central. */
+    fun onLinkFailed(reason: String)
 }

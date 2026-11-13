@@ -40,6 +40,7 @@ class WatchCentral(
     private var writing = false
     private val reliableQueue = ArrayDeque<ByteArray>()
     private var pendingUnreliable: ByteArray? = null
+    private var wireSequence = 0
     private var connected = false
 
     override val ready: Boolean
@@ -169,6 +170,8 @@ class WatchCentral(
 
     override fun send(packet: ByteArray, reliable: Boolean): Boolean {
         if (!ready) return false
+        // Fallback path only (desktop advertises). Sequence is stamped in writeNow.
+        // It does not share OutboundQueue's FIFO / Center rules; Stage 1 does not use this.
         if (writing) {
             if (reliable) reliableQueue.add(packet) else pendingUnreliable = packet
             return true
@@ -185,7 +188,11 @@ class WatchCentral(
         } else {
             BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
         }
+        Packets.stampSequence(packet, wireSequence)
         val status = gatt.writeCharacteristic(characteristic, packet, type)
+        if (status == BluetoothStatusCodes.SUCCESS) {
+            wireSequence = (wireSequence + 1) and 0xFFFF
+        }
         writing = status == BluetoothStatusCodes.SUCCESS
         return writing
     }
@@ -209,6 +216,7 @@ class WatchCentral(
         pointerChar = null
         reliableQueue.clear()
         pendingUnreliable = null
+        wireSequence = 0
         gatt?.close()
         gatt = null
     }

@@ -44,7 +44,7 @@ Every packet starts with 8 bytes.
 | --- | --- | --- |
 | 0 | u8 | `version`. Must be `1`. Receivers drop other versions. |
 | 1 | u8 | `kind` |
-| 2 | u16 | `sequence`. Increments by 1 for every packet the watch attempts to send on the link, including ones the stack then drops. Wraps at 65535. The receiver counts `wrapping_sub(previous) - 1` as lost packets. A repeated sequence is a duplicate, not a loss of 65535. |
+| 2 | u16 | `sequence`. Assigned when the watch first hands the packet to the stack, in that send order. Aims replaced before they are sent do not get a number. Wraps at 65535. The receiver counts `wrapping_sub(previous) - 1` as lost packets. A repeated sequence is a duplicate, not a loss of 65535. |
 | 4 | u32 | `timestamp_us`. Watch monotonic clock in microseconds, wrapping at 2^32 (about 71.6 minutes). Same time base as `SystemClock.elapsedRealtimeNanos()` divided by 1000. Aim packets use the **sensor** timestamp. Clicks and drags use the moment the finger went down (or, for a drag release, just before it lifted). |
 
 Receivers unwrap `timestamp_us` with `wrapping_sub` and estimate one-way delay from the sample that arrived quickest (minimum of `local_time - unwrapped_watch_time`). Reported latency is relative to that fastest packet, not an absolute clock sync. The first packet of a stretch therefore shows about 0 ms.

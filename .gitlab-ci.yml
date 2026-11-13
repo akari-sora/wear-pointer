@@ -1,13 +1,14 @@
-# Self-hosted runner only. The tag name `r9700x-docker` is UNVERIFIED:
-# the runner must be enabled for this project and the tag confirmed before a
-# pipeline can start. Jobs carry the tag so GitLab shared runners do not pick
-# them up. Do not remove the tag to "make CI run" on shared runners.
+# Self-hosted runner 57287642. Its description is "r9700x-docker"; that string
+# is not a tag. Jobs must list both real tags. Shared runners do not have
+# this pair, so they will not pick these jobs up. Do not drop either tag.
 #
-# This file has not been executed. A green commit is not evidence the jobs passed.
+# This file has not been executed by this checkout. A green commit is not a
+# green pipeline.
 
 default:
   tags:
-    - r9700x-docker
+    - r9700x
+    - docker
 
 workflow:
   rules:
@@ -20,7 +21,8 @@ stages:
 rust:
   stage: test
   tags:
-    - r9700x-docker
+    - r9700x
+    - docker
   image: rust:1-bookworm
   before_script:
     - apt-get update
@@ -40,7 +42,8 @@ rust:
 android:
   stage: test
   tags:
-    - r9700x-docker
+    - r9700x
+    - docker
   image: eclipse-temurin:21-jdk-jammy
   variables:
     ANDROID_HOME: /opt/android-sdk
@@ -52,8 +55,12 @@ android:
     - wget -q -O /tmp/cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
     - unzip -q /tmp/cmdtools.zip -d /tmp/cmdtools
     - mv /tmp/cmdtools/cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
-    - yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" --licenses >/dev/null || true
-    - yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+    # Do not pipe `yes` into sdkmanager. With `set -o pipefail`, yes exits 141
+    # (SIGPIPE) after sdkmanager closes stdin, and the job fails even though
+    # the packages were installed.
+    - mkdir -p "$ANDROID_HOME/licenses"
+    - printf '%s\n' "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_HOME/licenses/android-sdk-license"
+    - "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
   script:
     - cd wearos
     - chmod +x ./gradlew

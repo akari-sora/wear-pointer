@@ -65,9 +65,9 @@ object PointerRuntime : SensorEventListener, LinkListener {
     private var haveGravity = false
     private var started = false
     private var paused = false
-    private var sequence = 0
     private var samples = 0
     private var dropped = 0
+    private var lastGyroNs = 0L
     private var windowStartNs = 0L
     private var sensorHzX10 = 0
     private var infoTicks = 0
@@ -106,7 +106,6 @@ object PointerRuntime : SensorEventListener, LinkListener {
         handler?.post {
             transport?.stop()
             transport = null
-            sequence = 0
             openTransport(role)
         }
     }
@@ -114,9 +113,26 @@ object PointerRuntime : SensorEventListener, LinkListener {
     fun togglePause() {
         handler?.post {
             paused = !paused
-            if (paused) releaseWakeLock() else holdWakeLock()
-            _state.update { it.copy(paused = paused) }
-            send(Packets.pause(nextSequence(), nowUs(), paused), reliable = true)
+            if (paused) {
+                releaseWakeLock()
+                _state.update { it.copy(paused = true, status = "Paused — tracks while awake") }
+            } else {
+                holdWakeLock()
+                val gapNs = if (lastGyroNs == 0L) 0L else SystemClock.elapsedRealtimeNanos() - lastGyroNs
+                if (gapNs > SENSOR_GAP_NS) {
+                    // Non-wakeup sensors can drop a FIFO while the CPU was down.
+                    // The heading across that hole is missing, so start a new base.
+                    tracker.center()
+                    send(Packets.center(0, nowUs()), reliable = true)
+                    _state.update {
+                        it.copy(paused = false, status = "Tracks while awake — press Center if the cursor is off")
+                    }
+                } else {
+                    _state.update { it.copy(paused = false, status = if (it.connected) "Connected" else it.status) }
+                }
+            }
+            // Pause and Center drop aims still waiting. Stop clears the whole queue via transport.stop().
+            send(Packets.pause(0, nowUs(), paused), reliable = true)
         }
     }
 
@@ -153,8 +169,8 @@ object PointerRuntime : SensorEventListener, LinkListener {
         thread?.quitSafely()
         thread = null
         handler = null
-        sequence = 0
         samples = 0
+        lastGyroNs = 0L
         _state.update {
             it.copy(
                 status = "Stopped",
@@ -170,26 +186,27 @@ object PointerRuntime : SensorEventListener, LinkListener {
     fun center() {
         handler?.post {
             tracker.center()
-            send(Packets.center(nextSequence(), nowUs()), reliable = true)
+            // Center is a calibration boundary: the queue drops aims still waiting.
+            send(Packets.center(0, nowUs()), reliable = true)
         }
     }
 
     fun rightClick() {
         val down = SystemClock.elapsedRealtimeNanos() - 120_000_000L
         handler?.post {
-            send(Packets.rightClick(nextSequence(), nanosToUs(down)), reliable = true)
+            send(Packets.rightClick(0, nanosToUs(down)), reliable = true)
         }
     }
 
     fun leftClick(downNs: Long) {
         handler?.post {
-            send(Packets.leftClick(nextSequence(), nanosToUs(downNs)), reliable = true)
+            send(Packets.leftClick(0, nanosToUs(downNs)), reliable = true)
         }
     }
 
     fun drag(down: Boolean, eventNs: Long) {
         handler?.post {
-            send(Packets.drag(nextSequence(), nanosToUs(eventNs), down), reliable = true)
+            send(Packets.drag(0, nanosToUs(eventNs), down), reliable = true)
         }
     }
 
@@ -199,7 +216,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
             val whole = pendingScroll.toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
             if (whole == 0) return@post
             pendingScroll -= whole
-            send(Packets.scroll(nextSequence(), nowUs(), whole), reliable = false)
+            send(Packets.scroll(0, nowUs(), whole), reliable = false)
         }
     }
 
@@ -249,11 +266,18 @@ object PointerRuntime : SensorEventListener, LinkListener {
             }
             Sensor.TYPE_GYROSCOPE -> {
                 if (!haveGravity) return
+                val gapNs = if (lastGyroNs == 0L) 0L else event.timestamp - lastGyroNs
+                lastGyroNs = event.timestamp
                 tracker.push(event.timestamp, gravity, event.values)
                 samples++
+                if (!paused && gapNs > SENSOR_GAP_NS && transport?.ready == true) {
+                    tracker.center()
+                    send(Packets.center(0, nanosToUs(event.timestamp)), reliable = true)
+                    _state.update { it.copy(status = "Tracks while awake — press Center if the cursor is off") }
+                }
                 if (!paused && transport?.ready == true) {
                     send(
-                        Packets.aim(nextSequence(), nanosToUs(event.timestamp), tracker.leftCdeg(), tracker.upCdeg()),
+                        Packets.aim(0, nanosToUs(event.timestamp), tracker.leftCdeg(), tracker.upCdeg()),
                         reliable = false,
                     )
                 }
@@ -274,7 +298,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
         if (transport?.ready == true) {
             send(
                 Packets.stats(
-                    nextSequence(),
+                    0,
                     nowUs(),
                     samples,
                     counts.completed,
@@ -315,7 +339,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
         val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
             status == BatteryManager.BATTERY_STATUS_FULL
         send(
-            Packets.info(nextSequence(), nowUs(), pct, charging, sensorHzX10, Build.MODEL ?: "watch"),
+            Packets.info(0, nowUs(), pct, charging, sensorHzX10, Build.MODEL ?: "watch"),
             reliable = true,
         )
     }
@@ -327,12 +351,6 @@ object PointerRuntime : SensorEventListener, LinkListener {
             return
         }
         if (!transport.send(packet, reliable)) dropped++
-    }
-
-    private fun nextSequence(): Int {
-        val current = sequence
-        sequence = (sequence + 1) and 0xFFFF
-        return current
     }
 
     private fun nowUs(): Long = nanosToUs(SystemClock.elapsedRealtimeNanos())
@@ -348,11 +366,19 @@ object PointerRuntime : SensorEventListener, LinkListener {
 
     private fun applyConnection(connected: Boolean) {
         if (connected) {
-            sequence = 0
             infoTicks = 0
             sendInfo()
         }
         _state.update { it.copy(connected = connected) }
+    }
+
+    override fun onLinkFailed(reason: String) {
+        Log.w(TAG, reason)
+        val update = {
+            _state.update { it.copy(connected = false, status = "Link dropped — $reason") }
+        }
+        val handler = handler
+        if (handler == null || handler.looper.isCurrentThread) update() else handler.post(update)
     }
 
     override fun onStatus(text: String) {
@@ -420,5 +446,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
     private const val KEY_ROLE = "role"
     private const val SAMPLE_US = 10_000
     private const val WAKE_MS = 10 * 60 * 1000L
+    /** Longer than this between gyro samples means events were dropped while asleep. */
+    private const val SENSOR_GAP_NS = 500_000_000L
     private const val TAG = "wear-pointer"
 }

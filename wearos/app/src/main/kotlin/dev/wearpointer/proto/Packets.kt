@@ -26,6 +26,13 @@ object Packets {
     val CONTROL_UUID: UUID = UUID.fromString("7a1e0003-4c3b-4e2a-9f10-6d5c4b3a2910")
     val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
+    /** Overwrites the sequence field. Called when a packet is first handed to the stack. */
+    fun stampSequence(packet: ByteArray, sequence: Int) {
+        val value = sequence and 0xFFFF
+        packet[2] = (value and 0xFF).toByte()
+        packet[3] = (value shr 8 and 0xFF).toByte()
+    }
+
     fun aim(sequence: Int, timestampUs: Long, leftCdeg: Int, upCdeg: Int): ByteArray {
         val out = ByteArray(12)
         header(out, KIND_AIM, sequence, timestampUs)

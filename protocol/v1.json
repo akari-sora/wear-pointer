@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "sensor_hz": 100,
+  "cursor_hz": 240,
+  "hold_to_drag_ms": 350,
+  "default_reach_deg": 25.0,
+  "default_steady_hz": 0.8,
+  "default_quickness": 0.01,
+  "follow_tau_s": 0.005,
+  "service_uuid": "7a1e0001-4c3b-4e2a-9f10-6d5c4b3a2910",
+  "pointer_uuid": "7a1e0002-4c3b-4e2a-9f10-6d5c4b3a2910",
+  "control_uuid": "7a1e0003-4c3b-4e2a-9f10-6d5c4b3a2910",
+  "max_packet_bytes": 20,
+  "header_bytes": 8,
+  "kinds": {
+    "aim": 0,
+    "left_click": 1,
+    "right_click": 2,
+    "scroll": 3,
+    "center": 4,
+    "pause": 5,
+    "info": 6,
+    "drag": 7,
+    "stats": 8
+  },
+  "control_commands": {
+    "request_stats": 1
+  },
+  "aim_vector_hex": "01000100e8030000d204ceff"
+}

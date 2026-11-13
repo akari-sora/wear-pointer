@@ -1,0 +1,63 @@
+wear-pointer
+Copyright (c) 2026 wear-pointer contributors
+Licensed under the MIT License. See LICENSE.
+
+This project ports aiming, smoothing, and cursor-follow ideas from:
+
+  WatchPointer
+  Copyright (c) 2026 Umar Afzal
+  https://github.com/umarz317/WatchPointer
+  Licensed under the MIT License, reproduced below.
+
+Ported ideas (reimplemented in Kotlin and Rust, not copied as Swift source):
+
+  - Sample gravity and gyroscope at 100 Hz.
+  - Elevation from the gravity vector, so pitch does not integrate drift.
+  - Heading by integrating rotation about the vertical axis.
+  - Project that aim onto the screen like a laser on a flat wall.
+  - Smooth samples with a 1€ filter (Casiez, Roussel, Vogel, CHI 2012)
+    driven by the watch timestamps, not by Bluetooth arrival time.
+  - Move the desktop cursor on its own 240 Hz loop.
+  - Clicks and drags land where the pointer was when the finger went down.
+  - Hold-to-drag threshold of 0.35 s.
+
+The 1€ filter algorithm is from:
+
+  Géry Casiez, Nicolas Roussel, Daniel Vogel. "1€ Filter: A Simple Speed-based
+  Low-pass Filter for Noisy Input in Interactive Systems". CHI 2012.
+  https://gery.casiez.net/1euro/
+
+wear-pointer uses its own packet layout (version, sequence, microsecond
+timestamp) and, by default, the opposite Bluetooth role: the watch is the
+GATT peripheral and the desktop is the central. The WatchPointer direction
+(desktop advertises, watch connects) is the documented fallback. See
+docs/fallback-transport.md and protocol/SPEC.md.
+
+The wlr-virtual-pointer-unstable-v1 protocol used by the Hyprland backend is
+Copyright © 2019 Josef Gajdusek and is MIT-licensed. This repository does not
+vendor that XML; the receiver links the wayland-protocols-wlr crate.
+
+--------------------------------------------------------------------------------
+WatchPointer MIT License
+
+MIT License
+
+Copyright (c) 2026 Umar Afzal
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

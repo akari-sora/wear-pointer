@@ -1,0 +1,29 @@
+[package]
+name = "wear-pointer-platform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Cursor backends. Hyprland is the Stage 1 path. uinput is an optional Linux fallback. macOS and Windows are skeletons."
+
+[features]
+uinput = ["dep:evdev"]
+
+[dependencies]
+anyhow = "1"
+libc = "0.2"
+wear-pointer-core = { path = "../core" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+wayland-client = "0.31.7"
+wayland-protocols-wlr = { version = "0.3.5", features = ["client"] }
+evdev = { version = "0.12.2", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.23"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Foundation",
+] }

@@ -1,93 +1,100 @@
 # wear-pointer
 
-Wear OS watch as an air mouse: Kotlin/Compose watch app + Rust desktop receiver (Omarchy/Hyprland, macOS, Windows). Based on WatchPointer (MIT).
+Galaxy Watch7 (Wear OS) as an air mouse, with a Rust receiver aimed at Omarchy / Hyprland. macOS and Windows backends are skeletons.
 
-## Getting started
+The aiming model is ported from [WatchPointer](https://github.com/umarz317/WatchPointer) by Umar Afzal (MIT): gravity for up/down, integrated gyro for left/right, a [1€ filter](https://gery.casiez.net/1euro/) driven by the watch clock, and a desktop cursor loop at 240 Hz. The watch samples at 100 Hz. Copyright for that work is in [NOTICE](NOTICE). The packet layout and the default Bluetooth direction are new: the watch advertises, the desktop connects.
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+This tree has **not** been run on a Watch7 or in a Hyprland session. See [Current status](#current-status).
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+## Layout
 
-## Add your files
+| Path | What |
+| --- | --- |
+| `wearos/` | Kotlin / Jetpack Compose for Wear OS. Sensors, GATT server, tap / hold / right-click / pause / center, rotary scroll. |
+| `protocol/` | Protocol v1: UUIDs, packet bytes, the aim test vector. |
+| `receiver/` | Rust workspace. `core` (tested motion), `bluetooth` (btleplug central), `platform` (Hyprland, log, optional uinput, macOS/Windows skeletons). |
+| `docs/` | Architecture, Stage 0 checklist, acceptance targets, BLE fallback. |
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## Current status
 
+| Piece | Checked here | Not checked |
+| --- | --- | --- |
+| Rust `cargo test` (motion, packets, loss, latency, 240 Hz follow) | yes, on Linux | — |
+| Rust `cargo build` and `cargo build -p wear-pointer --features uinput` | yes, on Linux | not linked against a running BlueZ adapter or Hyprland |
+| Wear OS `assembleDebug` and JVM unit tests (6 tests) | yes, JDK 21, compileSdk 35 | not installed on a watch |
+| Watch7 BLE peripheral, real sensor rate, notify throughput, reconnect | no | [Stage 0](docs/stage0-hardware-validation.md) |
+| Hyprland cursor movement | no | needs a session and `zwlr_virtual_pointer_v1` |
+| macOS `CGEventPost`, Windows `SendInput` | not compiled (cfg-gated) | skeletons only |
+| Desktop-as-peripheral fallback | watch side is written; desktop `--role peripheral` exits with an error | [fallback](docs/fallback-transport.md) |
+| Pairing whitelist | no | TODO. The receiver accepts the first matching peripheral. Quit it when you are not using it. |
+
+Latency printed by `--debug` is relative to the fastest packet in the session, not a synchronized clock. Acceptance numbers in [docs/acceptance-metrics.md](docs/acceptance-metrics.md) are targets, not results.
+
+## Build the receiver
+
+Rust 1.89 or newer (this checkout was tested with 1.100). BlueZ headers are a build dependency on Linux (`libdbus-1-dev`, `pkg-config`).
+
+```bash
+cd receiver
+cargo test
+cargo build -p wear-pointer --release
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/aa22396584/wear-pointer.git
-git branch -M main
-git push -uf origin main
+
+Optional relative uinput backend (also needs permission on `/dev/uinput` at run time):
+
+```bash
+cargo build -p wear-pointer --features uinput
 ```
 
-## Integrate with your tools
+## Run the receiver
 
-* [Set up project integrations](https://gitlab.com/aa22396584/wear-pointer/-/settings/integrations)
+Stage 0, no cursor movement, one debug line per second:
 
-## Collaborate with your team
+```bash
+cd receiver
+cargo run -p wear-pointer -- --debug --backend log
+```
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+On a Hyprland session (`WAYLAND_DISPLAY` set), the default backend is Hyprland. Pass `--backend log` until Stage 0 looks sane.
 
-## Test and Deploy
+```bash
+cargo run -p wear-pointer --release -- --debug
+```
 
-Use the built-in continuous integration in GitLab.
+```text
+wear-pointer [--debug] [--role central|peripheral]
+             [--backend hyprland|log|uinput]
+             [--speed 1.0] [--steady 0.8] [--quick 0.01]
+             [--dead-zone 0.0] [--screen 1920x1080]
+```
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+`--speed` matches WatchPointer: higher reaches the edge of the screen with less turn. `--dead-zone` is degrees of aim to ignore. Leave it at 0 unless a log shows a reason; WatchPointer removed a dead zone because the cursor walked. `--steady` and `--quick` are the 1€ filter's still cutoff (Hz) and speed coefficient.
 
-***
+`--role peripheral` is the documented fallback (desktop advertises). It is not implemented and exits with an explanation.
 
-# Editing this README
+## Build the watch app
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+Wear OS 4 / 5, min SDK 33. Open `wearos/` in Android Studio, or:
 
-## Suggestions for a good README
+```bash
+cd wearos
+export ANDROID_HOME="$HOME/android-sdk"
+./gradlew :app:assembleDebug :app:testDebugUnitTest
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+No signing keys are in the repo. Debug builds use the local debug keystore that Android Gradle Plugin creates outside the tree.
 
-## Name
-Choose a self-explaining name for your project.
+On the watch: open the app, grant Bluetooth, leave it in the foreground. Tap the pad to click, hold about 350 ms to drag, Right / Center / Pause for the other buttons, rotate the bezel to scroll. The top line is the local sensor rate and how many notifications the stack accepted. Point the 12 o'clock edge at the screen and tap Center before expecting the cursor to sit in the middle.
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+If the watch reports that it cannot advertise, read [docs/fallback-transport.md](docs/fallback-transport.md). The watch can switch to "desktop advertises". The desktop half of that role is still a stub.
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+Full hardware steps: [docs/stage0-hardware-validation.md](docs/stage0-hardware-validation.md).
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+## Protocol
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+[protocol/SPEC.md](protocol/SPEC.md). Service UUID `7a1e0001-4c3b-4e2a-9f10-6d5c4b3a2910`. Packets are at most 20 bytes and carry a sequence number and a microsecond watch timestamp so the receiver can count loss and relative latency.
 
 ## License
-For open source projects, say how it is licensed.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+MIT, [LICENSE](LICENSE). WatchPointer's MIT notice is in [NOTICE](NOTICE).

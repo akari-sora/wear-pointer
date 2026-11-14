@@ -83,11 +83,11 @@ class PointerStage(Gtk.Window):
             {"id": "media", "label": "03 · Play / Media Deck", "sub": "BLE 100 Hz Low-Latency", "x": 848, "y": 176, "w": 340, "h": 164, "clicks": 0, "active_ts": 0.0},
         ]
 
-        # Draggable tile + Drop target slot
-        self.drag_box = {"x": 116.0, "y": 575.0, "w": 320.0, "h": 190.0}
+        # Draggable tile + Drop target slot (positioned below the (960, 540) origin crosshair)
+        self.drag_box = {"x": 116.0, "y": 680.0, "w": 320.0, "h": 184.0}
         self.dragging = False
         self.drag_off = (0.0, 0.0)
-        self.drop_zone = {"x": 750.0, "y": 555.0, "w": 416.0, "h": 230.0}
+        self.drop_zone = {"x": 750.0, "y": 640.0, "w": 416.0, "h": 252.0}
         self.dropped = False
         self.drop_ts = 0.0
 
@@ -171,8 +171,12 @@ class PointerStage(Gtk.Window):
                             p_s = "CLUTCH ON (FROZEN)" if self.last_pause_state else "RESUMED (LIVE)"
                             self.trace_lines.append(("pause", f"#{seq:04d} PAUSE   {p_s}"))
                         elif kind == KIND_STATS and len(raw) >= 16:
-                            smp, nok, ndrop, _ = struct.unpack_from("<HHHH", raw, 8)
-                            self.trace_lines.append(("aim", f"#{seq:04d} STATS   {smp}Hz ok={nok} drop={ndrop}"))
+                            smp, nok, ndrop, win_ms = struct.unpack_from("<HHHH", raw, 8)
+                            imu_hz = (smp * 1000.0 / win_ms) if win_ms > 0 else 0.0
+                            tx_hz = (nok * 1000.0 / win_ms) if win_ms > 0 else 0.0
+                            self.trace_lines.append(
+                                ("stats", f"#{seq:04d} STATS   imu={imu_hz:.0f}Hz tx={tx_hz:.0f}/s drop={ndrop}")
+                            )
                 except Exception:
                     pass
 
@@ -241,7 +245,7 @@ class PointerStage(Gtk.Window):
                     self.dropped = True
                     self.drop_ts = now
                     self.drag_box["x"] = dz["x"] + (dz["w"] - self.drag_box["w"]) / 2
-                    self.drag_box["y"] = dz["y"] + (dz["h"] - self.drag_box["h"]) / 2
+                    self.drag_box["y"] = dz["y"] + 50.0
                     self.log_evt("DRAG_DROPPED_IN_ZONE")
             self.log_evt(f"BTN_LEFT_UP {self.cx:.1f} {self.cy:.1f} draws={self.draw_count}")
         elif ev.button == 3:
@@ -325,6 +329,7 @@ class PointerStage(Gtk.Window):
         center_glow = max(0.0, 1.0 - (now - self.last_center_ts) / 1.6)
         cr.set_source_rgba(0.22, 0.74, 0.97, 0.26 + 0.72 * center_glow)
         cr.set_line_width(2.0 + 3.0 * center_glow)
+        cr.new_sub_path()
         cr.arc(960, 540, 28 + 18 * center_glow, 0, 2 * math.pi)
         cr.stroke()
         cr.move_to(960 - 44, 540)
@@ -462,10 +467,14 @@ class PointerStage(Gtk.Window):
             cr.set_source_rgba(0.96, 0.62, 0.04, 0.98)
             cr.set_line_width(2.8)
             cr.stroke()
-            cr.set_font_size(23)
             cr.set_source_rgb(1.0, 0.80, 0.24)
-            cr.move_to(356, 454)
-            cr.show_text("⏸ CLUTCH PAUSED · CURSOR FROZEN")
+            rounded_rect(cr, 354, 433, 7, 26, 2)
+            cr.fill()
+            rounded_rect(cr, 367, 433, 7, 26, 2)
+            cr.fill()
+            cr.set_font_size(23)
+            cr.move_to(388, 454)
+            cr.show_text("CLUTCH PAUSED · CURSOR FROZEN")
 
         # ── Right Tiled Window: Live Rust Receiver & BLE Packet Stream ──────
         rx, ry, rw, rh = 1286, 70, 610, 986
@@ -482,7 +491,7 @@ class PointerStage(Gtk.Window):
         cr.show_text("$ wear-pointer --backend hyprland")
 
         kpis = [
-            ("RATE", f"{hz} Hz", (0.063, 0.725, 0.506)),
+            ("RX RATE", f"{hz} pkt/s", (0.063, 0.725, 0.506)),
             ("PACKETS", f"{self.pkt_total}", (0.22, 0.74, 0.97)),
             ("LAST KIND", self.last_kind, (0.98, 0.78, 0.26)),
         ]
@@ -510,6 +519,7 @@ class PointerStage(Gtk.Window):
             "pause": (1.0, 0.62, 0.24),
             "link": (0.38, 0.95, 0.75),
             "warn": (0.98, 0.45, 0.45),
+            "stats": (0.52, 0.86, 0.92),
             "aim": (0.72, 0.80, 0.90),
         }
         for kind_key, ln in list(self.trace_lines):
@@ -525,6 +535,7 @@ class PointerStage(Gtk.Window):
                 alpha = (1.0 - age / 0.42) * 0.62
                 rad = 4.0 + (1.0 - age / 0.42) * 10.0
                 cr.set_source_rgba(0.063, 0.725, 0.506, alpha)
+                cr.new_sub_path()
                 cr.arc(tx, ty, rad, 0, 2 * math.pi)
                 cr.fill()
 
@@ -539,6 +550,7 @@ class PointerStage(Gtk.Window):
                 else:
                     cr.set_source_rgba(0.72, 0.56, 1.0, (1.0 - p) * 0.95)
                 cr.set_line_width(4.0 * (1.0 - p) + 1.2)
+                cr.new_sub_path()
                 cr.arc(rxp, ryp, 16.0 + p * 68.0, 0, 2 * math.pi)
                 cr.stroke()
         self.ripples = alive_ripples
@@ -546,9 +558,11 @@ class PointerStage(Gtk.Window):
         # High-contrast pointer halo around the real Wayland cursor
         cr.set_source_rgba(0.063, 0.725, 0.506, 0.96 if self.left_down else 0.84)
         cr.set_line_width(3.4 if self.left_down else 2.4)
+        cr.new_sub_path()
         cr.arc(self.cx, self.cy, 22.0 if self.left_down else 16.0, 0, 2 * math.pi)
         cr.stroke()
         cr.set_source_rgba(1.0, 1.0, 1.0, 0.96)
+        cr.new_sub_path()
         cr.arc(self.cx, self.cy, 4.5, 0, 2 * math.pi)
         cr.fill()
 

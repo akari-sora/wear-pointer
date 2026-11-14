@@ -116,6 +116,8 @@ def main() -> None:
 
     cur_h = 0.0
     cur_v = 0.0
+    base_h = 0.0
+    base_v = 0.0
     marks: dict[str, float] = {}
     t0 = time.time()
 
@@ -134,8 +136,10 @@ def main() -> None:
             time.sleep(1.0 / 60.0)
 
     def glide_to(tx: float, ty: float, duration: float) -> None:
-        nonlocal cur_h, cur_v
-        target_h, target_v = screen_to_angles_rad(tx, ty)
+        nonlocal cur_h, cur_v, base_h, base_v
+        rel_h, rel_v = screen_to_angles_rad(tx, ty)
+        target_h = base_h + rel_h
+        target_v = base_v + rel_v
         start_h, start_v = cur_h, cur_v
         dh = target_h - start_h
         dv = target_v - start_v
@@ -165,12 +169,12 @@ def main() -> None:
 
     mark("take_start")
     glide_to(380, 540, 0.55)
-    hold_still(0.35)
+    hold_still(0.45)
 
     # Clapperboard sync event: Center tap snaps BOTH Watch puck & Desktop cursor to (0,0)/(960,540) in 1 frame!
     mark("clapper_center")
     tap(PT_CENTER)
-    cur_h, cur_v = 0.0, 0.0
+    base_h, base_v = cur_h, cur_v
     hold_still(1.2)
 
     # ── SCENE 1: 100 Hz 2D Laser Aim & Click across 3 Hyprland cards ────────
@@ -193,25 +197,25 @@ def main() -> None:
     tap(PT_PAD)
     hold_still(0.45)
 
-    glide_to(276, 680, 1.15)
-    hold_still(0.75)
+    glide_to(276, 765, 1.15)
+    hold_still(0.85)
     mark("scene1_end")
 
     # ── SCENE 2: Hold 350 ms Drag Lock -> Drag Tile to Drop Slot + Right Click
     mark("scene2_start")
-    hold_proc = hold_pad(3100)
+    hold_proc = hold_pad(3150)
     # Wait 0.70s so the 350ms radial progress fills and DRAG LOCKED triggers cleanly
     hold_still(0.70)
     mark("drag_locked_move")
-    glide_to(958, 680, 1.75)
-    hold_still(0.75)
+    glide_to(958, 765, 1.75)
+    hold_still(0.80)
     hold_proc.wait()
     mark("drag_released")
-    hold_still(0.60)
+    hold_still(0.55)
 
     # Glide slightly up-left and Right-Click to pop context menu
-    glide_to(640, 480, 0.85)
-    hold_still(0.28)
+    glide_to(560, 460, 0.85)
+    hold_still(0.30)
     mark("right_click")
     tap(PT_RIGHT)
     hold_still(0.95)
@@ -220,21 +224,22 @@ def main() -> None:
     # ── SCENE 3: Clutch Pause (wrist moves, cursor stays frozen!) & Recenter
     mark("scene3_start")
     tap(PT_PAUSE)
-    hold_still(0.55)
-    mark("paused_wrist_wiggle")
-    # Move wrist noticeably left/right/up/down while paused — cursor on Hyprland MUST stay frozen!
-    glide_to(260, 300, 0.85)
-    glide_to(1080, 760, 0.95)
     hold_still(0.35)
+    mark("paused_wrist_wiggle")
+    # Move wrist noticeably in 2D while paused — cursor on Hyprland MUST stay frozen!
+    glide_to(260, 310, 0.65)
+    glide_to(1120, 540, 0.65)
+    glide_to(420, 540, 0.65)
+    # Elevation is now 0 (ay=0, az=9.81) for 0.65 + 0.90 + 0.75 = 2.30s before Center,
+    # so Sensor.TYPE_GRAVITY converges to 0.00° and Center locks on exact (960, 540)!
+    hold_still(0.90)
     mark("resume_tap")
     tap(PT_PAUSE)
-    hold_still(0.55)
+    hold_still(0.75)
     mark("recenter_tap")
-    # Reset physical elevation back to level and tap Center -> snaps dead bullseye (960, 540)!
-    glide_to(960, 540, 0.45)
     tap(PT_CENTER)
-    cur_h, cur_v = 0.0, 0.0
-    hold_still(1.15)
+    base_h, base_v = cur_h, cur_v
+    hold_still(1.30)
     mark("scene3_end")
 
     # ── SCENE 4: Live 100 Hz Telemetry Overlay + Smooth 2D Orbit ─────────────
@@ -244,7 +249,7 @@ def main() -> None:
     # Orbit smoothly so AIM L/U degrees update live inside TelemetryOverlay while desktop cursor orbits!
     glide_to(560, 340, 1.15)
     glide_to(1120, 380, 1.25)
-    glide_to(820, 680, 1.15)
+    glide_to(820, 620, 1.15)
     glide_to(960, 540, 0.95)
     hold_still(0.65)
     mark("scene4_end")

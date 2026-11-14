@@ -111,9 +111,9 @@ export const SCENES: SceneSpec[] = [
   },
   {
     id: "drag-rclick",
-    deskStart: 7.06,
-    watchStart: 7.06,
-    rawSeconds: 5.92,
+    deskStart: 7.18,
+    watchStart: 7.18,
+    rawSeconds: 5.94,
     speed: 1.05,
     accentColor: "#38BDF8",
     glowA: "rgba(56, 189, 248, 0.28)",
@@ -134,22 +134,22 @@ export const SCENES: SceneSpec[] = [
       sub: "Radial progress locks button-down for effortless window dragging",
     },
     keysH: [
-      { t: 0.0, x: 610, y: 60, z: 1.12 },
-      { t: 3.0, x: 740, y: 80, z: 1.14 },
-      { t: 5.2, x: 680, y: 60, z: 1.14 },
+      { t: 0.0, x: 610, y: 80, z: 1.1 },
+      { t: 3.0, x: 740, y: 95, z: 1.12 },
+      { t: 5.2, x: 660, y: 75, z: 1.12 },
     ],
     keysV: [
-      { t: 0.0, x: 380, y: 310, z: 1.52 },
-      { t: 2.9, x: 880, y: 310, z: 1.52 },
-      { t: 4.8, x: 720, y: 290, z: 1.52 },
+      { t: 0.0, x: 380, y: 290, z: 1.48 },
+      { t: 2.9, x: 880, y: 310, z: 1.48 },
+      { t: 4.8, x: 680, y: 260, z: 1.48 },
     ],
   },
   {
     id: "clutch-center",
-    deskStart: 13.0,
-    watchStart: 13.0,
-    rawSeconds: 4.9,
-    speed: 1.04,
+    deskStart: 13.14,
+    watchStart: 13.14,
+    rawSeconds: 5.31,
+    speed: 1.06,
     accentColor: "#F59E0B",
     glowA: "rgba(245, 158, 11, 0.26)",
     glowB: "rgba(56, 189, 248, 0.24)",
@@ -159,30 +159,30 @@ export const SCENES: SceneSpec[] = [
     zh: {
       chip: "防誤觸離合器",
       title: "一鍵暫停離合",
-      accent: "瞬間歸零校正",
-      sub: "Pause 轉動手腕游標紋絲不動・Center 立即對準螢幕中央",
+      accent: "原點歸中校正",
+      sub: "Pause 期間轉動手腕游標凍結・Center 重設原點對齊中央",
     },
     en: {
       chip: "Clutch & Calibration",
       title: "Instant Clutch",
       accent: "& One-Tap Recenter",
-      sub: "Move your wrist freely while paused · Snap dead-center anytime",
+      sub: "Move your wrist freely while paused · Re-zero origin to center",
     },
     keysH: [
-      { t: 0.0, x: 880, y: 40, z: 1.12 },
-      { t: 2.6, x: 920, y: 40, z: 1.14 },
-      { t: 4.9, x: 960, y: 50, z: 1.16 },
+      { t: 0.0, x: 930, y: 8, z: 1.0 },
+      { t: 3.3, x: 980, y: 8, z: 1.02 },
+      { t: 5.3, x: 1280, y: 8, z: 1.04 },
     ],
     keysV: [
-      { t: 0.0, x: 630, y: 210, z: 1.5 },
-      { t: 2.8, x: 650, y: 210, z: 1.5 },
-      { t: 4.9, x: 920, y: 240, z: 1.52 },
+      { t: 0.0, x: 600, y: 180, z: 1.48 },
+      { t: 3.3, x: 680, y: 180, z: 1.48 },
+      { t: 5.3, x: 940, y: 200, z: 1.5 },
     ],
   },
   {
     id: "telemetry-rust",
-    deskStart: 17.92,
-    watchStart: 17.92,
+    deskStart: 18.45,
+    watchStart: 18.45,
     rawSeconds: 5.4,
     speed: 1.08,
     accentColor: "#A78BFA",
@@ -195,13 +195,13 @@ export const SCENES: SceneSpec[] = [
       chip: "極致輕量協定",
       title: "即時封包監控",
       accent: "Rust 原生接收端",
-      sub: "錶端即時顯示 100 pkt/s 零掉包・支援 Hyprland 與 uinput",
+      sub: "錶端即時監看感測與掉包計數・支援 Hyprland 與 uinput",
     },
     en: {
       chip: "Compact Binary Protocol",
       title: "Live Telemetry",
       accent: "& Rust BLE Receiver",
-      sub: "100 pkt/s zero-drop HUD · Hyprland & Linux uinput backends",
+      sub: "Live sensor & drop counters on watch · Hyprland & uinput",
     },
     keysH: [
       { t: 0.0, x: 1340, y: 0, z: 1.12 },
@@ -655,7 +655,7 @@ const SceneView: React.FC<{
           <Rise
             delay={6}
             style={{
-              fontSize: lang === "zh" ? 60 : 58,
+              fontSize: lang === "zh" ? 58 : 48,
               fontWeight: 900,
               lineHeight: 1.15,
               marginTop: 18,
@@ -668,7 +668,7 @@ const SceneView: React.FC<{
           <Rise
             delay={10}
             style={{
-              fontSize: lang === "zh" ? 60 : 58,
+              fontSize: lang === "zh" ? 58 : 48,
               fontWeight: 900,
               lineHeight: 1.15,
               color: scene.accentColor,
@@ -883,7 +883,7 @@ const END_COPY = {
     features: "Kotlin Compose Watch App · Rust Receiver · 240 Hz 1€ Filter",
     cta: "Open Source v0.1.0 on GitLab & GitHub",
     repo: "gitlab.com/aa22396584/wear-pointer",
-    note: "Synchronized live capture on Wear OS + Hyprland 0.57 · MIT License · Wear OS is a trademark of Google LLC",
+    note: "Synchronized live capture: Wear OS emulator + Hyprland 0.57 · MIT License · Wear OS is a trademark of Google LLC",
   },
 };
 

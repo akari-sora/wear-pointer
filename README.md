@@ -2,6 +2,8 @@
 
 Galaxy Watch7 (Wear OS) as an air mouse, with a Rust receiver aimed at Omarchy / Hyprland. macOS and Windows backends are skeletons.
 
+![wear-pointer circular Wear OS spatial pointer showcase](docs/assets/showcase.png)
+
 The aiming model is ported from [WatchPointer](https://github.com/umarz317/WatchPointer) by Umar Afzal (MIT): gravity for up/down, integrated gyro for left/right, a [1€ filter](https://gery.casiez.net/1euro/) driven by the watch clock, and a desktop cursor loop at 240 Hz. The watch samples at 100 Hz. Copyright for that work is in [NOTICE](NOTICE). The packet layout and the default Bluetooth direction are new: the watch advertises, the desktop connects.
 
 This tree has **not** been run on a physical Watch7 yet. The full Linux desktop path (Wear OS emulator → `netsim` HCI → `/dev/vhci` → BlueZ → `wear-pointer --backend hyprland` → Hyprland → Wayland client) is verified end to end by [docs/desktop-harness.md](docs/desktop-harness.md). See [Current status](#current-status).
@@ -90,7 +92,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 No signing keys are in the repo. Debug builds use the local debug keystore that Android Gradle Plugin creates outside the tree.
 
-On the watch: open the app, grant Bluetooth, leave it in the foreground. Tap the pad to click, hold about 350 ms to drag, Right / Center / Pause for the other buttons, rotate the bezel to scroll. The top line is the local sensor rate and how many notifications the stack accepted. Point the 12 o'clock edge at the screen and tap Center before expecting the cursor to sit in the middle.
+On the watch: open the app, grant Bluetooth, leave it in the foreground. Point the 12 o'clock chevron (`▲`) at the screen and tap **Center** so both the desktop cursor and the spatial reticle puck sit in the middle. Tap the central pad to left-click, hold about 350 ms until the emerald ring locks to drag, use **Right** / **Center** / **Pause** in the chord-safe dock, **Stop** / **Start** at 6 o'clock, and rotate the bezel or crown to scroll. Tap the top status capsule (e.g. `LINKED · 100 HZ`) to open live sensor/GATT telemetry and the BLE role switch.
 
 If the watch reports that it cannot advertise, read [docs/fallback-transport.md](docs/fallback-transport.md). The watch can switch to "desktop advertises". The desktop half of that role is still a stub.
 

@@ -25,27 +25,27 @@ waitsub; sleep 2
 
 echo "1. turn left, Center mid-turn, keep turning"
 gyro 0:0.5:0; sleep 1
-tap 228 286          # Center
+tap 227 324          # Center
 sleep 0.5; gyro 0:0:0; sleep 0.5
 
 echo "2. tap = left click"
-tap 227 164; sleep 1
+tap 227 177; sleep 1
 
 echo "3. hold = drag, turning right while held"
-adb -s $W shell input swipe 227 164 227 164 2500 &
+adb -s $W shell input swipe 227 177 227 177 2500 &
 sleep 1.5; gyro 0:-0.5:0; sleep 0.6; gyro 0:0:0
 wait; sleep 1
 
 echo "4. right click"
-tap 84 286; sleep 1
+tap 104 324; sleep 1
 
 echo "5. pause, turn while paused, resume"
-tap 370 286; sleep 0.5
+tap 350 324; sleep 0.5
 gyro 0:0.5:0; sleep 1; gyro 0:0:0; sleep 0.3
-tap 370 286; sleep 1.5
+tap 350 324; sleep 1.5
 
 echo "6. hold drag, then force the watch's link-drop path mid-drag"
-adb -s $W shell input swipe 227 164 227 164 4000 &
+adb -s $W shell input swipe 227 177 227 177 4000 &
 sleep 2.0
 adb -s $W shell am broadcast -a dev.wearpointer.DEBUG_DROP_LINK >/dev/null
 wait

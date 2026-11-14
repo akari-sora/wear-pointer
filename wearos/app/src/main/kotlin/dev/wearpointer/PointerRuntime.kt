@@ -52,6 +52,8 @@ object PointerRuntime : SensorEventListener, LinkListener {
         val sentPerSec: Int = 0,
         val droppedPerSec: Int = 0,
         val bluetoothGranted: Boolean = false,
+        val aimLeftCdeg: Int = 0,
+        val aimUpCdeg: Int = 0,
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -72,6 +74,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
     private var dropped = 0
     private val gapMonitor = SensorGapMonitor(SENSOR_GAP_NS)
     private var windowStartNs = 0L
+    private var lastUiAimNs = 0L
     private var sensorHzX10 = 0
     private var infoTicks = 0
     private var pendingScroll = 0.0
@@ -169,8 +172,10 @@ object PointerRuntime : SensorEventListener, LinkListener {
      */
     private fun rebase(timestampUs: Long) {
         tracker.center()
+        _state.update { it.copy(aimLeftCdeg = 0, aimUpCdeg = 0) }
         if (transport?.ready != true) return
         send(Packets.center(0, timestampUs), reliable = true)
+        Log.i(TAG, "Sensor gap — recentered")
         _state.update { it.copy(status = "Sensor gap — recentered; press Center if the cursor is off") }
     }
 
@@ -212,6 +217,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
         thread = null
         handler = null
         samples = 0
+        lastUiAimNs = 0L
         gapMonitor.reset()
         _state.update {
             it.copy(
@@ -221,6 +227,8 @@ object PointerRuntime : SensorEventListener, LinkListener {
                 samplesPerSec = 0,
                 sentPerSec = 0,
                 droppedPerSec = 0,
+                aimLeftCdeg = 0,
+                aimUpCdeg = 0,
             )
         }
     }
@@ -230,6 +238,13 @@ object PointerRuntime : SensorEventListener, LinkListener {
             tracker.center()
             // Center is a calibration boundary: the queue drops aims still waiting.
             send(Packets.center(0, nowUs()), reliable = true)
+            _state.update {
+                it.copy(
+                    aimLeftCdeg = 0,
+                    aimUpCdeg = 0,
+                    status = if (it.connected && it.status.startsWith("Sensor gap")) "Connected" else it.status,
+                )
+            }
         }
     }
 
@@ -312,11 +327,20 @@ object PointerRuntime : SensorEventListener, LinkListener {
                 tracker.push(event.timestamp, gravity, event.values)
                 samples++
                 if (hole) rebase(nanosToUs(event.timestamp))
+                val left = tracker.leftCdeg()
+                val up = tracker.upCdeg()
                 if (!paused && transport?.ready == true) {
                     send(
-                        Packets.aim(0, nanosToUs(event.timestamp), tracker.leftCdeg(), tracker.upCdeg()),
+                        Packets.aim(0, nanosToUs(event.timestamp), left, up),
                         reliable = false,
                     )
+                }
+                if (event.timestamp - lastUiAimNs >= UI_AIM_INTERVAL_NS) {
+                    val cur = _state.value
+                    if (kotlin.math.abs(left - cur.aimLeftCdeg) >= 8 || kotlin.math.abs(up - cur.aimUpCdeg) >= 8) {
+                        lastUiAimNs = event.timestamp
+                        _state.update { it.copy(aimLeftCdeg = left, aimUpCdeg = up) }
+                    }
                 }
                 flushWindow(event.timestamp)
             }
@@ -484,6 +508,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
     private const val PREFS = "wear-pointer"
     private const val KEY_ROLE = "role"
     private const val SAMPLE_US = 10_000
+    private const val UI_AIM_INTERVAL_NS = 33_000_000L
     private const val WAKE_MS = 10 * 60 * 1000L
     /** Longer than this between gyro samples means events were dropped while asleep. */
     private const val SENSOR_GAP_NS = 500_000_000L

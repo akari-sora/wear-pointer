@@ -21,8 +21,8 @@ wait_more() {  # wait_more PATTERN PREV_COUNT TIMEOUT_S
   return 1
 }
 
-# Watch UI (wearos_large_round, 454x454).
-CENTER="228 286"; PAD="227 164"; RIGHT="84 286"; PAUSE="370 286"; STOP="227 371"
+# Watch UI (wearos_large_round, 454x454 circular instrument layout).
+CENTER="227 324"; PAD="227 177"; RIGHT="104 324"; PAUSE="350 324"; STOP="227 404"
 YAW=${YAW_AXIS:-y}   # the emulator's default pose is upright: up ~ device +Y
 turn() {  # turn RATE(rad/s) SECONDS
   case $YAW in

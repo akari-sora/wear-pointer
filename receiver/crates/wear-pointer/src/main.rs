@@ -7,7 +7,8 @@
 use anyhow::{Context, Result};
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, Instant};
 use wear_pointer_bluetooth::{CentralLink, LinkEvent, PeripheralLink, PointerLink};
@@ -16,8 +17,12 @@ use wear_pointer_platform::{LogBackend, PointerBackend};
 
 #[cfg(target_os = "linux")]
 use wear_pointer_platform::HyprlandBackend;
+#[cfg(target_os = "macos")]
+use wear_pointer_platform::MacosBackend;
 #[cfg(all(feature = "uinput", target_os = "linux"))]
 use wear_pointer_platform::UinputBackend;
+#[cfg(target_os = "windows")]
+use wear_pointer_platform::WindowsBackend;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Role {
@@ -29,15 +34,19 @@ enum Role {
 enum BackendKind {
     Hyprland,
     Log,
+    Macos,
     Uinput,
+    Windows,
 }
 
 struct Args {
     debug: bool,
     adapter: Option<String>,
+    device: Option<String>,
     trace: Option<String>,
     role: Role,
     backend: BackendKind,
+    screen_explicit: bool,
     config: SessionConfig,
 }
 
@@ -54,50 +63,69 @@ fn main() -> Result<()> {
 
     let start = Instant::now();
     let (tx, rx) = mpsc::channel::<LinkEvent>();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let cursor_stop = Arc::new(AtomicBool::new(false));
+    let bt_stop = Arc::clone(&cursor_stop);
     let clock = start;
     let adapter = args.adapter.clone();
+    let device = args.device.clone();
     let mut trace = match &args.trace {
         Some(path) => Some(Trace::create(path)?),
         None => None,
     };
-    thread::Builder::new()
+    let bt_thread = thread::Builder::new()
         .name("wear-pointer-bt".into())
-        .spawn(move || {
+        .spawn(move || -> Result<()> {
             let rt = match tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
             {
                 Ok(rt) => rt,
                 Err(err) => {
-                    eprintln!("wear-pointer: tokio runtime failed: {err}");
-                    return;
+                    bt_stop.store(true, Ordering::Release);
+                    return Err(err).context("tokio runtime failed");
                 }
             };
             rt.block_on(async move {
+                let fallback_stop = Arc::clone(&bt_stop);
+                tokio::spawn(async move {
+                    wait_for_termination_signal().await;
+                    eprintln!("wear-pointer: shutting down...");
+                    let _ = shutdown_tx.send(true);
+                    tokio::time::sleep(Duration::from_millis(2500)).await;
+                    fallback_stop.store(true, Ordering::Release);
+                });
                 let mut link = match CentralLink::new() {
-                    Ok(link) => link.with_adapter(adapter),
+                    Ok(link) => link
+                        .with_adapter(adapter)
+                        .with_device(device)
+                        .with_shutdown(shutdown_rx),
                     Err(err) => {
-                        eprintln!("wear-pointer: {err:#}");
-                        return;
+                        bt_stop.store(true, Ordering::Release);
+                        return Err(err);
                     }
                 };
-                if let Err(err) = link.run(tx, clock).await {
-                    eprintln!("wear-pointer: {err:#}");
-                }
-            });
+                let res = link.run(tx, clock).await;
+                bt_stop.store(true, Ordering::Release);
+                res
+            })
         })
         .context("spawn bluetooth thread")?;
 
-    let mut backend = open_backend(args.backend, args.config.screen)?;
+    let mut backend = open_backend(args.backend, args.config.screen, args.screen_explicit)?;
     let mut session = PointerSession::new(args.config);
     session.set_screen(backend.screen());
     let frame = Duration::from_secs_f64(1.0 / f64::from(CURSOR_HZ));
     let mut next = Instant::now();
     let mut link_epoch = 0u64;
-    eprintln!(
-        "wear-pointer: cursor loop at {CURSOR_HZ} Hz. Ctrl-C to quit. Pairing whitelist is not implemented."
-    );
+    let pairing_note = if args.device.is_some() {
+        "Device filter active."
+    } else {
+        "No --device filter set (accepts first matching watch)."
+    };
+    eprintln!("wear-pointer: cursor loop at {CURSOR_HZ} Hz. Ctrl-C to quit. {pairing_note}");
     loop {
+        let stopping = cursor_stop.load(Ordering::Acquire);
         let screen = backend.screen();
         if screen != session.screen() {
             session.set_screen(screen);
@@ -137,6 +165,21 @@ fn main() -> Result<()> {
                 }
                 apply(&mut *backend, action)?;
             }
+        }
+        if stopping {
+            if link_epoch != 0 {
+                let now = start.elapsed().as_secs_f64();
+                for action in session.on_disconnected() {
+                    if let Some(trace) = trace.as_mut() {
+                        trace.action(now, &action);
+                    }
+                    apply(&mut *backend, action)?;
+                }
+            }
+            if let Some(trace) = trace.as_mut() {
+                trace.flush_now();
+            }
+            break;
         }
         let now = start.elapsed().as_secs_f64();
         let (actions, debug) = session.tick(now);
@@ -186,6 +229,33 @@ fn main() -> Result<()> {
         } else {
             next = now_instant;
         }
+    }
+    match bt_thread.join() {
+        Ok(res) => res?,
+        Err(_) => anyhow::bail!("bluetooth worker thread panicked"),
+    }
+    Ok(())
+}
+
+async fn wait_for_termination_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        match signal(SignalKind::terminate()) {
+            Ok(mut sigterm) => {
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {}
+                    _ = sigterm.recv() => {}
+                }
+            }
+            Err(_) => {
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
     }
 }
 
@@ -245,6 +315,10 @@ impl Trace {
             self.last_flush_s = t;
         }
     }
+
+    fn flush_now(&mut self) {
+        let _ = self.out.flush();
+    }
 }
 
 fn apply(backend: &mut dyn PointerBackend, action: CursorAction) -> Result<()> {
@@ -255,32 +329,75 @@ fn apply(backend: &mut dyn PointerBackend, action: CursorAction) -> Result<()> {
     }
 }
 
-fn open_backend(kind: BackendKind, screen: Screen) -> Result<Box<dyn PointerBackend>> {
+fn open_backend(
+    kind: BackendKind,
+    screen: Screen,
+    screen_explicit: bool,
+) -> Result<Box<dyn PointerBackend>> {
     match kind {
         BackendKind::Log => Ok(Box::new(LogBackend::new(screen))),
         BackendKind::Hyprland => {
             #[cfg(target_os = "linux")]
             {
+                let _ = screen_explicit;
                 Ok(Box::new(HyprlandBackend::connect()?))
             }
             #[cfg(not(target_os = "linux"))]
             {
+                let _ = screen_explicit;
                 Err(anyhow::anyhow!("the hyprland backend is Linux-only"))
+            }
+        }
+        BackendKind::Macos => {
+            #[cfg(target_os = "macos")]
+            {
+                let override_screen = screen_explicit.then_some(screen);
+                Ok(Box::new(MacosBackend::open(override_screen)))
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = (screen, screen_explicit);
+                Err(anyhow::anyhow!("the macos backend is macOS-only"))
             }
         }
         BackendKind::Uinput => {
             #[cfg(all(feature = "uinput", target_os = "linux"))]
             {
+                let _ = screen_explicit;
                 Ok(Box::new(UinputBackend::open(screen)?))
             }
             #[cfg(not(all(feature = "uinput", target_os = "linux")))]
             {
-                let _ = screen;
+                let _ = (screen, screen_explicit);
                 Err(anyhow::anyhow!(
                     "uinput is not in this build. From receiver/: cargo build -p wear-pointer --features uinput"
                 ))
             }
         }
+        BackendKind::Windows => {
+            #[cfg(target_os = "windows")]
+            {
+                let override_screen = screen_explicit.then_some(screen);
+                Ok(Box::new(WindowsBackend::open(override_screen)))
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let _ = (screen, screen_explicit);
+                Err(anyhow::anyhow!("the windows backend is Windows-only"))
+            }
+        }
+    }
+}
+
+fn default_backend() -> BackendKind {
+    if cfg!(target_os = "macos") {
+        BackendKind::Macos
+    } else if cfg!(target_os = "windows") {
+        BackendKind::Windows
+    } else if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        BackendKind::Hyprland
+    } else {
+        BackendKind::Log
     }
 }
 
@@ -288,13 +405,11 @@ fn parse_args() -> Result<Args> {
     let mut args = std::env::args().skip(1);
     let mut debug = false;
     let mut adapter = None;
+    let mut device = None;
     let mut trace = None;
     let mut role = Role::Central;
-    let mut backend = if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-        BackendKind::Hyprland
-    } else {
-        BackendKind::Log
-    };
+    let mut backend = default_backend();
+    let mut screen_explicit = false;
     let mut config = SessionConfig::default();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -304,6 +419,12 @@ fn parse_args() -> Result<Args> {
             }
             "--debug" => debug = true,
             "--adapter" => adapter = Some(args.next().context("--adapter NAME, for example hci1")?),
+            "--device" => {
+                device = Some(
+                    args.next()
+                        .context("--device MATCH (address, UUID, or local name substring)")?,
+                )
+            }
             "--trace" => trace = Some(args.next().context("--trace FILE")?),
             "--role" => {
                 role = match args.next().as_deref() {
@@ -316,9 +437,13 @@ fn parse_args() -> Result<Args> {
                 backend = match args.next().as_deref() {
                     Some("hyprland") => BackendKind::Hyprland,
                     Some("log") => BackendKind::Log,
+                    Some("macos") => BackendKind::Macos,
                     Some("uinput") => BackendKind::Uinput,
+                    Some("windows") => BackendKind::Windows,
                     other => {
-                        anyhow::bail!("--backend expects hyprland, log, or uinput, got {other:?}")
+                        anyhow::bail!(
+                            "--backend expects hyprland, macos, windows, log, or uinput, got {other:?}"
+                        )
                     }
                 };
             }
@@ -329,6 +454,7 @@ fn parse_args() -> Result<Args> {
             "--screen" => {
                 let value = args.next().context("--screen WIDTH x HEIGHT")?;
                 config.screen = parse_screen(&value)?;
+                screen_explicit = true;
             }
             other if other.starts_with("--") => anyhow::bail!("unknown argument {other}"),
             other => {
@@ -347,9 +473,11 @@ fn parse_args() -> Result<Args> {
     Ok(Args {
         debug,
         adapter,
+        device,
         trace,
         role,
         backend,
+        screen_explicit,
         config,
     })
 }
@@ -373,22 +501,22 @@ fn print_help() {
         "\
 wear-pointer — desktop receiver
 
-  wear-pointer [--debug] [--role central|peripheral] [--backend hyprland|log|uinput]
+  wear-pointer [--debug] [--role central|peripheral] [--backend hyprland|macos|windows|log|uinput]
                [--speed 1.0] [--steady 0.8] [--quick 0.01] [--dead-zone 0.0]
-               [--screen 1920x1080] [--adapter hci1] [--trace FILE]
+               [--screen 1920x1080] [--adapter hci1] [--device MATCH] [--trace FILE]
 
 Stage 0 (no cursor movement):
   cargo run -p wear-pointer -- --debug --backend log
 
-Stage 1 on Hyprland (default when WAYLAND_DISPLAY is set):
+Stage 1 on Hyprland (default on Linux when WAYLAND_DISPLAY is set), macOS, or Windows:
   cargo run -p wear-pointer --release -- --debug
 
 --speed is WatchPointer's sensitivity: higher reaches the screen edge with less turn.
 --dead-zone is degrees of aim to ignore. Leave it at 0 unless a log shows jitter.
 --role peripheral is the documented fallback and is not implemented on the desktop yet.
 --adapter picks a Bluetooth adapter by name (default: the first one).
+--device restricts connections to a peripheral whose ID, BD_ADDR, or local name matches MATCH.
 --trace writes every link event, packet, and cursor action to FILE (tools/harness reads it).
-Pairing whitelist is a TODO. Quit the receiver when you are not using it.
 "
     );
 }

@@ -1,6 +1,13 @@
 # Stage 0 — Galaxy Watch7 and Omarchy
 
-No step below has been run on a physical Galaxy Watch7 yet. Automated end-to-end protocol, BlueZ `/dev/vhci`, and Hyprland `zwlr_virtual_pointer_v1` checks run in [desktop-harness.md](desktop-harness.md), and two-emulator BLE checks run in [emulator-harness.md](emulator-harness.md), but neither tests Samsung's Watch7 radio firmware, real 2.4 GHz RF loss, wrist detection, or hardware sensor FIFO behaviour during suspend. This checklist is what to run on the physical Watch7 and Omarchy / Hyprland machine, and what to write down.
+Physical Stage 0 validation was completed on **2026-11-15** with a **Samsung Galaxy Watch7 (`SM-L310`, Wear OS 6 / Android 16 API 36, `BP2A.250325.020.L310XXS2BZF4`)**, **Omarchy / Hyprland 0.56.2** (BlueZ 5.87), **Windows 11** (WinRT BLE), and **macOS (`M4 Max`)**. Summary results are recorded in [acceptance-metrics.md](acceptance-metrics.md); key hardware findings:
+
+- **BLE Peripheral & Connection Interval:** `SM-L310` advertises `7a1e0001-4c3b-4e2a-9f10-6d5c4b3a2910` reliably (`ADVERTISE_MODE_LOW_LATENCY`). Requesting `BluetoothGatt.CONNECTION_PRIORITY_HIGH` (`7.5–11.25 ms` interval) upon CCCD subscription reduced relative over-the-air latency from `32–73 ms` avg down to **`13.19 ms` avg** on BlueZ and **`8.9–11.9 ms` avg** (`< 30 ms` max) on Windows 11 WinRT BLE.
+- **BlueZ Scan Offload Note:** On BlueZ 5.87, passing a hardware UUID `ScanFilter` caused BlueZ controller offload to miss Watch7's unbonded primary advertisement; scanning with `ScanFilter::default()` on Linux and filtering `uuids` in `CentralLink` discovers `SM-L310` in `< 1 s`.
+- **Sensor Rate & Screen-Off Behaviour:** `LSM6DSO` gyroscope + gravity deliver a rock-solid `100 samples/s` (`99.5–100.0 Hz`, `gyroGapsOver50ms = 0`) both with the screen on (`FLAG_KEEP_SCREEN_ON`) and during screen-off while active (`PARTIAL_WAKE_LOCK` keeps the Exynos W1000 AP awake). Pausing releases the wake lock (`0` wake locks held in `dumpsys power`).
+- **Hyprland `zwlr_virtual_pointer_v1`:** Verified live on Hyprland 0.56.2 (`1920x1200` physical, `1280x800` at `1.5x` scale): tapping **Center** on `SM-L310` moved `hyprctl cursorpos` straight to the display center (`638, 399`).
+
+The repeatable checklist used to run or reproduce Stage 0 on hardware follows below.
 
 Do the log backend before the Hyprland backend. A bad packet stream should not be the first thing that moves the pointer.
 

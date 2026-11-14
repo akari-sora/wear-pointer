@@ -662,6 +662,14 @@ private fun TelemetryOverlay(
     onRole: (PointerRuntime.Role) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var showPrivacy by remember { mutableStateOf(false) }
+    if (showPrivacy) {
+        PrivacyOverlay(
+            sightColor = sightColor,
+            onBack = { showPrivacy = false },
+        )
+        return
+    }
     val leftDeg = "%+.1f°".format(ui.aimLeftCdeg / 100f)
     val upDeg = "%+.1f°".format(ui.aimUpCdeg / 100f)
     Box(
@@ -744,6 +752,84 @@ private fun TelemetryOverlay(
                 )
             }
 
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .height(24.dp)
+                        .clip(CircleShape)
+                        .background(SurfaceIdle)
+                        .border(1.dp, BorderSubtle, CircleShape)
+                        .clickable { showPrivacy = true }
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "Privacy",
+                        color = TextSecondary,
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .width(70.dp)
+                        .height(24.dp)
+                        .clip(CircleShape)
+                        .background(SurfaceElevated)
+                        .border(1.dp, BorderStrong, CircleShape)
+                        .clickable(onClick = onDismiss),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "Done",
+                        color = TextPrimary,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PrivacyOverlay(
+    sightColor: Color,
+    onBack: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(PitchBlack)
+            .clickable(onClick = onBack),
+        contentAlignment = Alignment.Center,
+    ) {
+        PerimeterInstrumentDial(sightColor = sightColor)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 28.dp, vertical = 20.dp)
+                .clickable(enabled = false) {},
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = "PRIVACY POLICY",
+                color = AccentEmerald,
+                fontSize = 9.5.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.sp,
+            )
+            Text(
+                text = "Zero personal data collected, stored, or shared. Motion sensors & BLE stream locally to your computer cursor only. No INTERNET permission, analytics, or ads.\n\naa22396584.gitlab.io/wear-pointer/privacy.html",
+                color = TextSecondary,
+                fontSize = 8.5.sp,
+                textAlign = TextAlign.Center,
+            )
             Box(
                 modifier = Modifier
                     .width(76.dp)
@@ -751,11 +837,11 @@ private fun TelemetryOverlay(
                     .clip(CircleShape)
                     .background(SurfaceElevated)
                     .border(1.dp, BorderStrong, CircleShape)
-                    .clickable(onClick = onDismiss),
+                    .clickable(onClick = onBack),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "Done",
+                    text = "Back",
                     color = TextPrimary,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,

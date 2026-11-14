@@ -1,8 +1,8 @@
 //! Windows cursor via SendInput.
 //!
-//! Skeleton. This file is compiled only on Windows and was not built in the
-//! Linux checkout that produced the Stage 1 merge request. Absolute motion
-//! uses the 0..65535 normalized coordinate space.
+//! Absolute motion uses the 0..=65535 normalized primary-monitor coordinate
+//! space; primary screen dimensions are queried with `GetSystemMetrics` unless
+//! overridden via `--screen`.
 
 use crate::PointerBackend;
 use anyhow::{anyhow, Result};
@@ -10,8 +10,9 @@ use wear_pointer_core::{Button, Screen};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
     MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
-    MOUSEEVENTF_WHEEL, MOUSEINPUT,
+    MOUSEEVENTF_WHEEL, MOUSEINPUT, MOUSE_EVENT_FLAGS,
 };
+use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
 
 pub struct WindowsBackend {
     screen: Screen,
@@ -20,6 +21,19 @@ pub struct WindowsBackend {
 }
 
 impl WindowsBackend {
+    pub fn open(screen_override: Option<Screen>) -> Self {
+        let screen = screen_override.unwrap_or_else(|| {
+            let width = f64::from(unsafe { GetSystemMetrics(SM_CXSCREEN) });
+            let height = f64::from(unsafe { GetSystemMetrics(SM_CYSCREEN) });
+            if width > 1.0 && height > 1.0 {
+                Screen::new(width, height)
+            } else {
+                Screen::new(1920.0, 1080.0)
+            }
+        });
+        Self::new(screen)
+    }
+
     pub fn new(screen: Screen) -> Self {
         Self {
             screen,
@@ -28,7 +42,7 @@ impl WindowsBackend {
         }
     }
 
-    fn send(&self, flags: u32, dx: i32, dy: i32, data: u32) -> Result<()> {
+    fn send(&self, flags: MOUSE_EVENT_FLAGS, dx: i32, dy: i32, data: u32) -> Result<()> {
         let input = INPUT {
             r#type: INPUT_MOUSE,
             Anonymous: INPUT_0 {
@@ -54,12 +68,16 @@ impl WindowsBackend {
         let nx = if self.screen.width <= 1.0 {
             0
         } else {
-            (x / self.screen.width * 65535.0).round() as i32
+            ((x / (self.screen.width - 1.0)) * 65535.0)
+                .clamp(0.0, 65535.0)
+                .round() as i32
         };
         let ny = if self.screen.height <= 1.0 {
             0
         } else {
-            (y / self.screen.height * 65535.0).round() as i32
+            ((y / (self.screen.height - 1.0)) * 65535.0)
+                .clamp(0.0, 65535.0)
+                .round() as i32
         };
         (nx, ny)
     }
@@ -85,8 +103,11 @@ impl PointerBackend for WindowsBackend {
     }
 
     fn scroll(&mut self, delta_px: i32) -> Result<()> {
-        // WHEEL_DELTA is 120 per notch. Treat ~30 px as one notch.
-        let data = (delta_px / 30) * 120;
+        // WHEEL_DELTA is 120 per notch (~30 px). Preserve smooth sub-notch rotary deltas.
+        let data = delta_px.saturating_mul(4);
+        if data == 0 {
+            return Ok(());
+        }
         self.send(MOUSEEVENTF_WHEEL, 0, 0, data as u32)
     }
 

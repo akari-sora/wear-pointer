@@ -25,7 +25,7 @@ import java.util.ArrayDeque
  *
  * Callback failure ([onFinished] with `false`) or [onTimeout]: delivery is
  * unknown, so nothing is resent (a click could be applied twice).
- * - aim: counted, the queue moves on. A later aim supersedes it.
+ * - aim or stats: counted, the queue moves on. Later samples/windows supersede them.
  * - anything else: [Transmit.DropLink]. The desktop releases buttons on
  *   disconnect. A lost drag-up while later aims keep arriving would not trip
  *   the receiver's 300 ms no-aim release, so the link drop is what frees it.
@@ -100,7 +100,8 @@ class OutboundQueue {
             completed++
         } else {
             rejected++
-            if (kind(packet) != Packets.KIND_AIM) {
+            val k = kind(packet)
+            if (k != Packets.KIND_AIM && k != Packets.KIND_STATS) {
                 abandon()
                 return Transmit.DropLink
             }

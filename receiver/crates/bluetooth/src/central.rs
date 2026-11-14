@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use btleplug::api::{Central, CentralEvent, Manager as _, Peripheral as _, ScanFilter};
 use btleplug::platform::{Adapter, Manager};
 use futures::StreamExt;
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
@@ -14,6 +15,7 @@ use uuid::Uuid;
 use wear_pointer_core::{POINTER_UUID, SERVICE_UUID};
 
 const STEP_TIMEOUT: Duration = Duration::from_secs(15);
+const FAILED_DEVICE_COOLDOWN: Duration = Duration::from_secs(8);
 
 /// No notification at all for this long ends the session. The watch sends a
 /// stats packet every second while it is connected, paused or not. Android
@@ -32,6 +34,8 @@ pub enum PumpStop {
     EventsEnded,
     /// Nothing arrived for the silence timeout.
     Silent,
+    /// Local process requested graceful shutdown.
+    Shutdown,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,12 +45,23 @@ pub enum PumpAdapterEvent {
     Other,
 }
 
+enum SessionOutcome {
+    Disconnected(&'static str),
+    Shutdown,
+}
+
 pub struct CentralLink {
     service: Uuid,
     pointer: Uuid,
     /// Substring of btleplug's adapter info (`hci1 (usb:...)`). `None` takes
     /// the first adapter.
     adapter: Option<String>,
+    /// Case-insensitive substring filter against peripheral ID, BD_ADDR, or
+    /// advertised local name (`--device`). `None` accepts the first matching
+    /// service peripheral.
+    device: Option<String>,
+    /// Optional graceful-shutdown channel triggered on SIGINT / SIGTERM.
+    shutdown: Option<tokio::sync::watch::Receiver<bool>>,
 }
 
 impl CentralLink {
@@ -55,12 +70,27 @@ impl CentralLink {
             service: Uuid::parse_str(SERVICE_UUID)?,
             pointer: Uuid::parse_str(POINTER_UUID)?,
             adapter: None,
+            device: None,
+            shutdown: None,
         })
     }
 
     /// Use the adapter whose info contains `name`, for example `hci1`.
     pub fn with_adapter(mut self, name: Option<String>) -> Self {
         self.adapter = name;
+        self
+    }
+
+    /// Only connect to a peripheral whose ID, address, or local name contains
+    /// `filter` (case-insensitive).
+    pub fn with_device(mut self, filter: Option<String>) -> Self {
+        self.device = filter.filter(|s| !s.trim().is_empty());
+        self
+    }
+
+    /// Disconnect cleanly and return when `shutdown` flips to `true`.
+    pub fn with_shutdown(mut self, shutdown: tokio::sync::watch::Receiver<bool>) -> Self {
+        self.shutdown = Some(shutdown);
         self
     }
 }
@@ -90,28 +120,44 @@ impl PointerLink for CentralLink {
         }
         let (adapter, info) = chosen.ok_or_else(|| match &self.adapter {
             Some(name) => anyhow!("no bluetooth adapter matching {name:?}"),
-            None => anyhow!("no bluetooth adapter. Is BlueZ running?"),
+            None => anyhow!("no bluetooth adapter. Is Bluetooth / BlueZ running?"),
         })?;
         eprintln!("wear-pointer: bluetooth adapter ready ({info}), role=central");
-        // TODO(pairing): pin the first watch, or load an address whitelist.
-        // A service-UUID match is not authentication.
+        if let Some(filter) = &self.device {
+            eprintln!("wear-pointer: device filter active: {filter:?}");
+        }
         let mut epoch = 0u64;
+        let mut failed_until: HashMap<String, Instant> = HashMap::new();
+        let mut shutdown = self.shutdown.clone();
         loop {
+            if is_shutdown(&shutdown) {
+                return Ok(());
+            }
             epoch = epoch.wrapping_add(1);
+            failed_until.retain(|_, until| *until > Instant::now());
             match session(
                 &adapter,
                 self.service,
                 self.pointer,
+                self.device.as_deref(),
+                &mut failed_until,
+                &mut shutdown,
                 epoch,
                 clock,
                 &incoming,
             )
             .await
             {
-                Ok(reason) => eprintln!("wear-pointer: watch disconnected ({reason})"),
+                Ok(SessionOutcome::Shutdown) => return Ok(()),
+                Ok(SessionOutcome::Disconnected(reason)) => {
+                    eprintln!("wear-pointer: watch disconnected ({reason})")
+                }
                 Err(err) => eprintln!("wear-pointer: bluetooth session ended: {err:#}"),
             }
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            tokio::select! {
+                () = wait_shutdown(&mut shutdown) => return Ok(()),
+                () = tokio::time::sleep(Duration::from_secs(1)) => {}
+            }
             eprintln!("wear-pointer: scanning again");
         }
     }
@@ -120,18 +166,42 @@ impl PointerLink for CentralLink {
 /// Read notifications until the peripheral disconnects, even if the
 /// notification stream stays open across the drop (btleplug 0.9+), or until
 /// nothing has arrived for `silence`.
+#[cfg(test)]
 pub async fn pump_link(
+    notifications: Pin<Box<dyn futures::Stream<Item = Vec<u8>> + Send>>,
+    events: Pin<Box<dyn futures::Stream<Item = PumpAdapterEvent> + Send>>,
+    epoch: u64,
+    clock: Instant,
+    incoming: &Sender<LinkEvent>,
+    silence: Duration,
+) -> PumpStop {
+    let mut shutdown = None;
+    pump_link_until(
+        notifications,
+        events,
+        epoch,
+        clock,
+        incoming,
+        silence,
+        &mut shutdown,
+    )
+    .await
+}
+
+pub async fn pump_link_until(
     mut notifications: Pin<Box<dyn futures::Stream<Item = Vec<u8>> + Send>>,
     mut events: Pin<Box<dyn futures::Stream<Item = PumpAdapterEvent> + Send>>,
     epoch: u64,
     clock: Instant,
     incoming: &Sender<LinkEvent>,
     silence: Duration,
+    shutdown: &mut Option<tokio::sync::watch::Receiver<bool>>,
 ) -> PumpStop {
     let quiet = tokio::time::sleep(silence);
     tokio::pin!(quiet);
     loop {
         tokio::select! {
+            () = wait_shutdown(shutdown) => return PumpStop::Shutdown,
             () = &mut quiet => return PumpStop::Silent,
             packet = notifications.next() => {
                 match packet {
@@ -160,24 +230,70 @@ pub async fn pump_link(
     }
 }
 
+fn is_shutdown(shutdown: &Option<tokio::sync::watch::Receiver<bool>>) -> bool {
+    shutdown.as_ref().is_some_and(|rx| *rx.borrow())
+}
+
+async fn wait_shutdown(shutdown: &mut Option<tokio::sync::watch::Receiver<bool>>) {
+    match shutdown {
+        Some(rx) => {
+            if *rx.borrow() {
+                return;
+            }
+            while rx.changed().await.is_ok() {
+                if *rx.borrow() {
+                    return;
+                }
+            }
+            std::future::pending::<()>().await
+        }
+        None => std::future::pending::<()>().await,
+    }
+}
+
 async fn session(
     adapter: &Adapter,
     service: Uuid,
     pointer: Uuid,
+    device_filter: Option<&str>,
+    failed_until: &mut HashMap<String, Instant>,
+    shutdown: &mut Option<tokio::sync::watch::Receiver<bool>>,
     epoch: u64,
     clock: Instant,
     incoming: &Sender<LinkEvent>,
-) -> anyhow::Result<&'static str> {
-    adapter
-        .start_scan(ScanFilter {
+) -> anyhow::Result<SessionOutcome> {
+    // On Linux/BlueZ, `SetDiscoveryFilter(UUIDs=[...])` (used by btleplug when
+    // `ScanFilter::services` is non-empty) drops Wear OS BLE advertisements whose
+    // AD Flags byte is 0x00 on real Intel/MediaTek controllers. Unfiltered
+    // discovery (`StartDiscovery`) sees the watch immediately, and
+    // `advertises_service` still enforces the 128-bit service UUID before connect.
+    let scan_filter = if cfg!(target_os = "macos") {
+        ScanFilter {
             services: vec![service],
-        })
+        }
+    } else {
+        ScanFilter::default()
+    };
+    adapter
+        .start_scan(scan_filter)
         .await
         .context("start scan")?;
     eprintln!("wear-pointer: scanning for the watch");
 
-    let peripheral = wait_for_watch(adapter, service).await?;
+    let found = wait_for_watch(adapter, service, device_filter, failed_until, shutdown).await;
     adapter.stop_scan().await.ok();
+    let peripheral = match found? {
+        Some(p) => p,
+        None => return Ok(SessionOutcome::Shutdown),
+    };
+    if cfg!(target_os = "linux") {
+        // Give BlueZ / controller HCI scan teardown a brief settle window so
+        // `LE Create Connection` does not race `StopDiscovery` (`le-connection-abort-by-local`).
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+    if is_shutdown(shutdown) {
+        return Ok(SessionOutcome::Shutdown);
+    }
 
     let name = peripheral
         .properties()
@@ -189,10 +305,15 @@ async fn session(
     let id = peripheral.id();
     eprintln!("wear-pointer: connecting to {name} ({id})");
     let id_text = id.to_string();
-    let characteristic = match open_characteristic(&peripheral, pointer).await {
-        Ok(c) => c,
+    let characteristic = match open_characteristic(&peripheral, pointer, shutdown).await {
+        Ok(Some(c)) => c,
+        Ok(None) => {
+            let _ = tokio::time::timeout(Duration::from_secs(2), peripheral.disconnect()).await;
+            return Ok(SessionOutcome::Shutdown);
+        }
         Err(err) => {
-            peripheral.disconnect().await.ok();
+            failed_until.insert(id_text, Instant::now() + FAILED_DEVICE_COOLDOWN);
+            let _ = tokio::time::timeout(Duration::from_secs(2), peripheral.disconnect()).await;
             return Err(err);
         }
     };
@@ -201,14 +322,14 @@ async fn session(
     let notifications = match peripheral.notifications().await.context("notifications") {
         Ok(n) => n,
         Err(err) => {
-            peripheral.disconnect().await.ok();
+            let _ = tokio::time::timeout(Duration::from_secs(2), peripheral.disconnect()).await;
             return Err(err);
         }
     };
     let adapter_events = match adapter.events().await.context("adapter events") {
         Ok(e) => e,
         Err(err) => {
-            peripheral.disconnect().await.ok();
+            let _ = tokio::time::timeout(Duration::from_secs(2), peripheral.disconnect()).await;
             return Err(err);
         }
     };
@@ -218,19 +339,37 @@ async fn session(
             device: format!("{name} ({id_text})"),
         })
         .ok();
-    if let Err(err) = tokio::time::timeout(STEP_TIMEOUT, peripheral.subscribe(&characteristic))
-        .await
-        .context("subscribe timed out")
-        .and_then(|r| r.context("subscribe"))
-    {
-        incoming
-            .send(LinkEvent::Disconnected {
-                epoch,
-                reason: "subscribe failed".to_string(),
-            })
-            .ok();
-        peripheral.disconnect().await.ok();
-        return Err(err);
+    let sub_outcome = tokio::select! {
+        () = wait_shutdown(shutdown) => None,
+        res = tokio::time::timeout(STEP_TIMEOUT, peripheral.subscribe(&characteristic)) => Some(res),
+    };
+    match sub_outcome {
+        None => {
+            incoming
+                .send(LinkEvent::Disconnected {
+                    epoch,
+                    reason: "shutdown".to_string(),
+                })
+                .ok();
+            let _ = tokio::time::timeout(Duration::from_secs(2), peripheral.disconnect()).await;
+            return Ok(SessionOutcome::Shutdown);
+        }
+        Some(Err(_)) | Some(Ok(Err(_))) => {
+            let err = sub_outcome
+                .unwrap()
+                .context("subscribe timed out")
+                .and_then(|r| r.context("subscribe"))
+                .unwrap_err();
+            incoming
+                .send(LinkEvent::Disconnected {
+                    epoch,
+                    reason: "subscribe failed".to_string(),
+                })
+                .ok();
+            let _ = tokio::time::timeout(Duration::from_secs(2), peripheral.disconnect()).await;
+            return Err(err);
+        }
+        Some(Ok(Ok(()))) => {}
     }
     eprintln!("wear-pointer: subscribed. --debug prints rate, loss, and latency once a second");
 
@@ -244,12 +383,22 @@ async fn session(
         }
         _ => PumpAdapterEvent::Other,
     }));
-    let stop = pump_link(notify_bytes, disconnects, epoch, clock, incoming, SILENCE_TIMEOUT).await;
+    let stop = pump_link_until(
+        notify_bytes,
+        disconnects,
+        epoch,
+        clock,
+        incoming,
+        SILENCE_TIMEOUT,
+        shutdown,
+    )
+    .await;
     let reason = match stop {
         PumpStop::DeviceDisconnected => "device disconnected",
         PumpStop::NotificationsEnded => "notification stream ended",
         PumpStop::EventsEnded => "adapter events ended",
         PumpStop::Silent => "no packet for 3 s; watch stopped sending",
+        PumpStop::Shutdown => "shutdown",
     };
     incoming
         .send(LinkEvent::Disconnected {
@@ -257,56 +406,86 @@ async fn session(
             reason: reason.to_string(),
         })
         .ok();
-    peripheral.disconnect().await.ok();
-    Ok(reason)
+    let _ = tokio::time::timeout(Duration::from_secs(2), peripheral.disconnect()).await;
+    if stop == PumpStop::Shutdown {
+        Ok(SessionOutcome::Shutdown)
+    } else {
+        Ok(SessionOutcome::Disconnected(reason))
+    }
 }
 
 async fn open_characteristic(
     peripheral: &btleplug::platform::Peripheral,
     pointer: Uuid,
-) -> anyhow::Result<btleplug::api::Characteristic> {
-    tokio::time::timeout(STEP_TIMEOUT, peripheral.connect())
-        .await
+    shutdown: &mut Option<tokio::sync::watch::Receiver<bool>>,
+) -> anyhow::Result<Option<btleplug::api::Characteristic>> {
+    let connect_res = tokio::select! {
+        () = wait_shutdown(shutdown) => return Ok(None),
+        res = tokio::time::timeout(STEP_TIMEOUT, peripheral.connect()) => res,
+    };
+    connect_res
         .context("connect timed out")?
         .context("connect")?;
-    tokio::time::timeout(STEP_TIMEOUT, peripheral.discover_services())
-        .await
+    let discover_res = tokio::select! {
+        () = wait_shutdown(shutdown) => return Ok(None),
+        res = tokio::time::timeout(STEP_TIMEOUT, peripheral.discover_services()) => res,
+    };
+    discover_res
         .context("discover timed out")?
         .context("discover services")?;
     peripheral
         .characteristics()
         .into_iter()
         .find(|candidate| candidate.uuid == pointer)
+        .map(Some)
         .ok_or_else(|| anyhow!("watch is missing the pointer characteristic"))
 }
 
 async fn wait_for_watch(
     adapter: &Adapter,
     service: Uuid,
-) -> anyhow::Result<btleplug::platform::Peripheral> {
+    device_filter: Option<&str>,
+    failed_until: &mut HashMap<String, Instant>,
+    shutdown: &mut Option<tokio::sync::watch::Receiver<bool>>,
+) -> anyhow::Result<Option<btleplug::platform::Peripheral>> {
     let mut events = adapter.events().await.context("scan events")?;
     let mut announced = 0u32;
     loop {
         tokio::select! {
+            () = wait_shutdown(shutdown) => return Ok(None),
             event = events.next() => {
                 let Some(event) = event else {
                     anyhow::bail!("scan event stream ended");
                 };
-                let id = match event {
-                    CentralEvent::ServicesAdvertisement { id, services } if services.contains(&service) => Some(id),
-                    CentralEvent::DeviceDiscovered(id) | CentralEvent::DeviceUpdated(id) => Some(id),
-                    _ => None,
+                // A fresh `DeviceUpdated` or `ServicesAdvertisement` means a live
+                // advertisement arrived over the air, clearing any cooldown.
+                // `DeviceDiscovered` on BlueZ can be synthesized from D-Bus cache
+                // for a rotated-away RPA whose RSSI was not cleared on connect abort.
+                let (id, is_live_rx) = match event {
+                    CentralEvent::ServicesAdvertisement { id, services } if services.contains(&service) => (Some(id), true),
+                    CentralEvent::DeviceUpdated(id) => (Some(id), true),
+                    CentralEvent::DeviceDiscovered(id) => (Some(id), false),
+                    _ => (None, false),
                 };
                 if let Some(id) = id {
-                    let peripheral = adapter.peripheral(&id).await?;
-                    if advertises_service(&peripheral, service).await {
-                        return Ok(peripheral);
+                    let id_str = id.to_string();
+                    if is_live_rx {
+                        failed_until.remove(&id_str);
+                    } else if failed_until.get(&id_str).is_some_and(|until| *until > Instant::now()) {
+                        continue;
+                    }
+                    let Ok(peripheral) = adapter.peripheral(&id).await else {
+                        continue;
+                    };
+                    if advertises_service(&peripheral, service, device_filter).await {
+                        return Ok(Some(peripheral));
                     }
                 }
             }
             _ = tokio::time::sleep(Duration::from_secs(5)) => {
-                if let Some(found) = poll_peripherals(adapter, service).await? {
-                    return Ok(found);
+                failed_until.retain(|_, until| *until > Instant::now());
+                if let Some(found) = poll_peripherals(adapter, service, device_filter, failed_until).await? {
+                    return Ok(Some(found));
                 }
                 announced += 1;
                 if announced == 1 || announced % 6 == 0 {
@@ -320,16 +499,45 @@ async fn wait_for_watch(
 async fn poll_peripherals(
     adapter: &Adapter,
     service: Uuid,
+    device_filter: Option<&str>,
+    failed_until: &HashMap<String, Instant>,
 ) -> anyhow::Result<Option<btleplug::platform::Peripheral>> {
+    let now = Instant::now();
     for peripheral in adapter.peripherals().await.context("peripherals")? {
-        if advertises_service(&peripheral, service).await {
+        let id_str = peripheral.id().to_string();
+        if failed_until.get(&id_str).is_some_and(|until| *until > now) {
+            continue;
+        }
+        if advertises_service(&peripheral, service, device_filter).await {
             return Ok(Some(peripheral));
         }
     }
     Ok(None)
 }
 
-async fn advertises_service(peripheral: &btleplug::platform::Peripheral, service: Uuid) -> bool {
+pub fn matches_device_filter(
+    filter: Option<&str>,
+    id: &str,
+    address: &str,
+    local_name: Option<&str>,
+) -> bool {
+    let Some(needle) = filter.map(str::trim).filter(|s| !s.is_empty()) else {
+        return true;
+    };
+    let needle = needle.to_ascii_lowercase();
+    id.to_ascii_lowercase().contains(&needle)
+        || (address != "00:00:00:00:00:00" && address.to_ascii_lowercase().contains(&needle))
+        || local_name
+            .map(|name| name.to_ascii_lowercase().contains(&needle))
+            .unwrap_or(false)
+}
+
+async fn advertises_service(
+    peripheral: &btleplug::platform::Peripheral,
+    service: Uuid,
+    device_filter: Option<&str>,
+) -> bool {
+    let id_str = peripheral.id().to_string();
     match peripheral.properties().await {
         Ok(Some(props)) => {
             // On BlueZ, btleplug's `adapter.events()` synthesizes `DeviceDiscovered`
@@ -342,6 +550,12 @@ async fn advertises_service(peripheral: &btleplug::platform::Peripheral, service
                 true
             };
             live && props.services.iter().any(|uuid| *uuid == service)
+                && matches_device_filter(
+                    device_filter,
+                    &id_str,
+                    &props.address.to_string(),
+                    props.local_name.as_deref(),
+                )
         }
         _ => false,
     }
@@ -435,5 +649,68 @@ mod tests {
         // 10 packets 50 ms apart, then 150 ms of quiet.
         assert!(started.elapsed() >= Duration::from_millis(600));
         drop(feeder);
+    }
+
+    #[test]
+    fn device_filter_matches_id_address_or_local_name_case_insensitively() {
+        assert!(matches_device_filter(
+            None,
+            "hci0/dev_AA_BB",
+            "AA:BB:CC:DD:EE:FF",
+            None
+        ));
+        assert!(matches_device_filter(
+            Some("aa:bb:cc"),
+            "hci0/dev_AA_BB",
+            "AA:BB:CC:DD:EE:FF",
+            None
+        ));
+        assert!(matches_device_filter(
+            Some("watch7"),
+            "9f1c2e3a-0000",
+            "00:00:00:00:00:00",
+            Some("Galaxy Watch7 (L310)")
+        ));
+        assert!(!matches_device_filter(
+            Some("00:00"),
+            "9f1c2e3a-0000",
+            "00:00:00:00:00:00",
+            Some("wear-pointer")
+        ));
+        assert!(!matches_device_filter(
+            Some("other-watch"),
+            "hci0/dev_11_22",
+            "11:22:33:44:55:66",
+            Some("wear-pointer")
+        ));
+    }
+
+    #[tokio::test]
+    async fn shutdown_signal_ends_the_session_immediately() {
+        let (_notify_tx, notify_rx) = mpsc::unbounded::<Vec<u8>>();
+        let (_event_tx, event_rx) = mpsc::unbounded();
+        let (incoming_tx, _incoming_rx) = std::sync::mpsc::channel();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let mut shutdown = Some(shutdown_rx);
+        let clock = Instant::now();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            let _ = shutdown_tx.send(true);
+        });
+        let stop = tokio::time::timeout(
+            Duration::from_secs(1),
+            pump_link_until(
+                Box::pin(notify_rx),
+                Box::pin(event_rx),
+                9,
+                clock,
+                &incoming_tx,
+                Duration::from_secs(30),
+                &mut shutdown,
+            ),
+        )
+        .await
+        .expect("shutdown stopped pump_link_until");
+        assert_eq!(stop, PumpStop::Shutdown);
     }
 }

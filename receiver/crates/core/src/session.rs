@@ -310,11 +310,15 @@ impl PointerSession {
             }
         }
         self.last_aim_deg = Some((left, up));
-        let raw = project_aim(
+        let projected = project_aim(
             left,
             up,
             self.config.screen,
             reach_degrees(self.config.speed),
+        );
+        let raw = (
+            projected.0.clamp(0.0, self.config.screen.width.max(0.0)),
+            projected.1.clamp(0.0, self.config.screen.height.max(0.0)),
         );
         let dt = match watch_dt_s {
             Some(dt) if dt > 0.0 && dt < MAX_FILTER_DT_S => dt,
@@ -746,5 +750,23 @@ mod tests {
         assert_eq!(debug.lost_window, 2);
         assert!(debug.rx_hz > 0.0);
         assert!(debug.loss_pct_window > 0.0);
+    }
+
+    #[test]
+    fn extreme_tilt_clamps_to_screen_bounds_without_filter_windup() {
+        let mut session = session();
+        let actions = session.push_packet(&aim(1, 0, 7_500, 7_500), 0.0);
+        assert_eq!(actions, vec![CursorAction::Move { x: 0.0, y: 0.0 }]);
+        assert_eq!(session.target, Some((0.0, 0.0)));
+
+        let actions_far = session.push_packet(&aim(2, 500_000, -7_500, -7_500), 0.5);
+        assert_eq!(
+            actions_far,
+            vec![CursorAction::Move {
+                x: 2000.0,
+                y: 1000.0
+            }]
+        );
+        assert_eq!(session.target, Some((2000.0, 1000.0)));
     }
 }

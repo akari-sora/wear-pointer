@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Privacy Policy — Wear Pointer</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #08090b;
+      --card: #131519;
+      --border: #272a32;
+      --text: #f4f4f5;
+      --muted: #a1a1aa;
+      --accent: #10b981;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 40px 20px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    main {
+      max-width: 760px;
+      margin: 0 auto;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 32px 28px;
+    }
+    h1 { margin-top: 0; font-size: 1.8rem; }
+    h2 { margin-top: 1.8rem; font-size: 1.2rem; color: var(--accent); }
+    p, li { color: var(--muted); }
+    strong { color: var(--text); }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .meta { font-size: 0.9rem; color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Privacy Policy — Wear Pointer</h1>
+    <p class="meta">
+      <strong>Application:</strong> Wear Pointer (<code>dev.wearpointer</code>)<br />
+      <strong>Effective Date:</strong> November 15, 2026<br />
+      <strong>Developer:</strong> Yushang Lung
+    </p>
+
+    <h2>1. Summary — Zero Data Collection</h2>
+    <p>
+      <strong>Wear Pointer does not collect, store, transmit, sell, or share any personal data, analytics, identifiers, or telemetry to external servers.</strong>
+      The Wear OS application does not request the Android <code>INTERNET</code> permission and contains zero third-party analytics, advertising, or tracking SDKs.
+    </p>
+
+    <h2>2. Sensor &amp; Bluetooth Data Usage</h2>
+    <ul>
+      <li><strong>Motion Sensors (Gyroscope &amp; Gravity):</strong> Inertial sensor readings (up to 100 Hz) are processed solely in volatile memory on your watch to compute relative wrist orientation angles for controlling your own computer's mouse pointer.</li>
+      <li><strong>Bluetooth Low Energy (<code>BLUETOOTH_ADVERTISE</code>, <code>BLUETOOTH_CONNECT</code>, <code>BLUETOOTH_SCAN</code>):</strong> Used exclusively to send short (&le; 20-byte) real-time pointer movement, click, and scroll notifications directly over a local Bluetooth Low Energy GATT link to your nearby desktop receiver. Bluetooth permissions are declared with <code>neverForLocation</code> and are never used to derive physical location.</li>
+      <li><strong>Notifications &amp; Foreground Service:</strong> Used solely to keep the active spatial pointer session alive while you control your computer and to provide an immediate <em>Stop</em> action on your wrist.</li>
+    </ul>
+
+    <h2>3. Local Storage</h2>
+    <p>
+      Wear Pointer stores no personal accounts, credentials, or cloud backups (<code>android:allowBackup="false"</code>). Session state exists only in memory while the app is running and is discarded when you tap <strong>Stop</strong> or close the app.
+    </p>
+
+    <h2>4. Children's Privacy</h2>
+    <p>
+      Wear Pointer is a general-purpose desktop peripheral utility and does not knowingly collect personal information from anyone, including children under the age of 13.
+    </p>
+
+    <h2>5. Open Source &amp; Verification</h2>
+    <p>
+      Wear Pointer is open-source software licensed under the MIT License. You can inspect the complete Wear OS and desktop receiver source code at
+      <a href="https://gitlab.com/aa22396584/wear-pointer">https://gitlab.com/aa22396584/wear-pointer</a>.
+    </p>
+
+    <h2>6. Contact</h2>
+    <p>
+      If you have questions regarding this Privacy Policy, please contact:<br />
+      <strong>Email:</strong> <a href="mailto:aa22396584@gmail.com">aa22396584@gmail.com</a>
+    </p>
+  </main>
+</body>
+</html>

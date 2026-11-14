@@ -157,6 +157,17 @@ class OutboundQueueTest {
     }
 
     @Test
+    fun statsCallbackFailureMovesOnWithoutDroppingTheLink() {
+        val queue = OutboundQueue()
+        val stats = send(queue.enqueue(Packets.stats(1, 1_000, 100, 99, 0, 1_000)))
+        queue.enqueue(Packets.leftClick(2, 2_000))
+        val next = send(queue.onFinished(success = false))
+        assertEquals(Packets.KIND_LEFT_CLICK, kind(next))
+        assertEquals(sequenceOf(stats) + 1, sequenceOf(next))
+        assertEquals(1, queue.takeCounters().rejected)
+    }
+
+    @Test
     fun dragUpCallbackFailureDropsTheLinkInsteadOfResending() {
         val queue = OutboundQueue()
         send(queue.enqueue(Packets.drag(1, 1, down = false)))

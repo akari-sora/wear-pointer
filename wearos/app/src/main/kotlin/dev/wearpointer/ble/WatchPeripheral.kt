@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothGattServer
@@ -51,6 +52,8 @@ class WatchPeripheral(
 
     /** Devices that accepted the packet in flight and owe a callback. */
     private val awaiting = HashSet<BluetoothDevice>()
+    /** Local GATT client handles opened on active LE links solely to request CONNECTION_PRIORITY_HIGH (7.5-11.25 ms). */
+    private val priorityClients = HashMap<BluetoothDevice, BluetoothGatt>()
     private var flightOk = true
     private var retryPacket: ByteArray? = null
     private val notifyTimeout = Runnable { onNotifyTimeout() }
@@ -176,7 +179,12 @@ class WatchPeripheral(
             val enable = value != null && value.isNotEmpty() && (value[0].toInt() and 0x01) != 0
             onHandler {
                 val wasReady = ready
-                if (enable) subscribed.add(device) else subscribed.remove(device)
+                if (enable) {
+                    subscribed.add(device)
+                    requestLowLatencyInterval(device)
+                } else {
+                    subscribed.remove(device)
+                }
                 // A new subscription is a new link for the receiver: sequence starts at 0.
                 if (!wasReady && ready) resetFlight()
                 if (!enable) forgetDevice(device)
@@ -211,10 +219,21 @@ class WatchPeripheral(
             listener.onStatus("Bluetooth is off")
             return
         }
-        try {
-            adapter.name = "wear-pointer"
-        } catch (err: SecurityException) {
-            Log.w(TAG, "adapter name unchanged", err)
+        if (adapter.name == "wear-pointer") {
+            val restored = runCatching {
+                android.provider.Settings.Secure.getString(context.contentResolver, "bluetooth_name")
+            }.getOrNull()?.takeIf { it.isNotBlank() && it != "wear-pointer" }
+                ?: runCatching {
+                    android.provider.Settings.Global.getString(
+                        context.contentResolver,
+                        android.provider.Settings.Global.DEVICE_NAME,
+                    )
+                }.getOrNull()?.takeIf { it.isNotBlank() && it != "wear-pointer" }
+                ?: android.os.Build.MODEL
+            if (!restored.isNullOrBlank()) {
+                runCatching { adapter.name = restored }
+                Log.i(TAG, "restored Bluetooth adapter name to $restored")
+            }
         }
         val advertiser = adapter.bluetoothLeAdvertiser
         if (advertiser == null) {
@@ -355,12 +374,64 @@ class WatchPeripheral(
         }
     }
 
+    @SuppressLint("MissingPermission")
+    private fun requestLowLatencyInterval(device: BluetoothDevice) {
+        if (priorityClients.containsKey(device)) return
+        try {
+            val gatt = device.connectGatt(
+                context,
+                false,
+                object : BluetoothGattCallback() {
+                    override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+                        if (newState == BluetoothProfile.STATE_CONNECTED) {
+                            val ok = g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+                            Log.i(TAG, "requested CONNECTION_PRIORITY_HIGH for ${device.address}: $ok")
+                        } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                            onHandler {
+                                if (priorityClients[device] === g) {
+                                    priorityClients.remove(device)
+                                }
+                                g.close()
+                            }
+                        }
+                    }
+                },
+                BluetoothDevice.TRANSPORT_LE,
+            )
+            if (gatt != null) {
+                priorityClients[device] = gatt
+            }
+        } catch (err: Exception) {
+            Log.w(TAG, "requestLowLatencyInterval failed", err)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun closePriorityClients() {
+        for (gatt in priorityClients.values) {
+            try {
+                gatt.close()
+            } catch (err: Exception) {
+                Log.w(TAG, "close priority gatt", err)
+            }
+        }
+        priorityClients.clear()
+    }
+
     /**
      * [device] left (disconnect or unsubscribe). With nobody left, the link is
      * gone and the queue restarts. Otherwise its owed callback will not come:
      * delivery to it is unknown, so the flight finishes as a failure.
      */
+    @SuppressLint("MissingPermission")
     private fun forgetDevice(device: BluetoothDevice) {
+        priorityClients.remove(device)?.let { gatt ->
+            try {
+                gatt.close()
+            } catch (err: Exception) {
+                Log.w(TAG, "close priority gatt", err)
+            }
+        }
         if (subscribed.isEmpty()) {
             resetFlight()
             return
@@ -397,6 +468,7 @@ class WatchPeripheral(
         Log.w(TAG, "dropping link: $reason")
         val devices = subscribed.toList()
         subscribed.clear()
+        closePriorityClients()
         resetFlight()
         for (device in devices) {
             try {
@@ -432,6 +504,7 @@ class WatchPeripheral(
 
     @SuppressLint("MissingPermission")
     private fun tearDownRadio() {
+        closePriorityClients()
         resetFlight()
         subscribed.clear()
         try {

@@ -1,6 +1,6 @@
 # Architecture
 
-wear-pointer turns a Galaxy Watch7 into an air mouse for a desktop. Stage 1 targets Omarchy (Hyprland). macOS and Windows have skeleton backends that are not built on Linux.
+wear-pointer turns a Galaxy Watch7 into an air mouse for a desktop across Linux (Omarchy / Hyprland `zwlr_virtual_pointer_v1` and optional `uinput`), macOS (`CGEventPost`), and Windows (`SendInput`).
 
 The aim math is a port of [WatchPointer](https://github.com/umarz317/WatchPointer) (Copyright (c) 2026 Umar Afzal, MIT). See `NOTICE`. The Bluetooth direction and the packet framing are wear-pointer's.
 
@@ -31,9 +31,10 @@ receiver session
         v
 PointerBackend
     hyprland: zwlr_virtual_pointer_v1
-    log: print only (Stage 0)
-    uinput: optional relative mouse
-    macos / windows: skeletons, cfg-gated
+    macos: CGEventPost (auto-detects CGDisplay::main)
+    windows: SendInput (auto-detects GetSystemMetrics)
+    log: print only (Stage 0 / headless diagnostics)
+    uinput: optional Linux relative mouse
 ```
 
 ## Why the split looks like this
@@ -48,7 +49,7 @@ Clicks carry the finger-down timestamp. The desktop keeps one second of cursor h
 
 `PointerTransport` on the watch and `PointerLink` on the desktop are the swap point. The desktop link emits `Connected` / `Packet` / `Disconnected` with an epoch. A new epoch resets sequence tracking, the clock anchor, filters, and cursor history so a watch sequence restart is not thousands of lost packets. Packet bytes do not change. The desktop peripheral side is still a stub: [fallback-transport.md](fallback-transport.md).
 
-Pointer notifications are notifications, not indications. Both watch roles share `OutboundQueue`: one GATT operation in flight, FIFO, sequence written at the hand-off to the stack. A newer aim replaces only the queued aim at the tail, so a click already behind it is not reordered, and a coalesced aim never consumes a sequence. Center and Pause drop the tail aim (old base, unsent); Stop clears the queue. Busy is retried with the same bytes after 5/10/20/40 ms; any other synchronous error, or busy past that budget, drops the link. A failed or missing callback is never resent: a failed aim is skipped, anything else drops the link. Dropping the link makes the watch silent and closes and rebuilds its GATT server; Android cannot force a central-initiated link down, so the desktop ends the session itself after 3 s without any packet (`SILENCE_TIMEOUT`), and its 300 ms no-aim rule releases a held drag first. A lost drag-up while later aims keep arriving does not trip the 300 ms rule; the watch going silent is what does. The exact rules are in [protocol/SPEC.md](../protocol/SPEC.md).
+Pointer notifications are notifications, not indications. When a central subscribes to CCCD, `WatchPeripheral` also requests `BluetoothGatt.CONNECTION_PRIORITY_HIGH` (`7.5–11.25 ms` LE connection interval) without mutating the watch's system Bluetooth adapter name. Both watch roles share `OutboundQueue`: one GATT operation in flight, FIFO, sequence written at the hand-off to the stack. A newer aim replaces only the queued aim at the tail, so a click already behind it is not reordered, and a coalesced aim never consumes a sequence. Center and Pause drop the tail aim (old base, unsent); Stop clears the queue. Busy is retried with the same bytes after 5/10/20/40 ms; any other synchronous error, or busy past that budget, drops the link. A failed or missing callback is never resent: a failed aim or stats notification is skipped, whereas a failed discrete input event drops the link. Dropping the link makes the watch silent and closes and rebuilds its GATT server; Android cannot force a central-initiated link down, so the desktop ends the session itself after 3 s without any packet (`SILENCE_TIMEOUT`), and its 300 ms no-aim rule releases a held drag first. A lost drag-up while later aims keep arriving does not trip the 300 ms rule; the watch going silent is what does. The exact rules are in [protocol/SPEC.md](../protocol/SPEC.md).
 
 The queue, the in-flight bookkeeping, retries, and the callback timeout all run on the runtime handler thread. GATT binder callbacks post there, so a completion cannot race the notify call it completes.
 
@@ -60,13 +61,19 @@ The Rust crate `wear-pointer-core` tests the integrator, the 1€ filter, projec
 
 The Wear OS module has JVM unit tests for the same aim vector and the same aim packet bytes, for `OutboundQueue` (ordering, sequence, retries, Center boundary, plus a seeded random simulation that checks sequence continuity, the Center boundary, and in-order discrete events across 300 runs), and for `SensorGapMonitor`. Those tests do not talk to a radio or a sensor.
 
-## What is not tested on hardware
+## Hardware validation
 
-Nothing in this tree has run on a Galaxy Watch7, and nothing has injected a pointer into a Hyprland session. [stage0-hardware-validation.md](stage0-hardware-validation.md) is the checklist for that. [acceptance-metrics.md](acceptance-metrics.md) is the bar those logs should be compared to. The numbers there are targets, not measurements.
+Physical validation was completed on a **Samsung Galaxy Watch7 (`SM-L310`, Wear OS 6 / Android 16 API 36, `BP2A.250325.020.L310XXS2BZF4`)** paired over real 2.4 GHz BLE against:
 
-## Pairing
+- **Omarchy / Linux (`x86_64`):** BlueZ 5.87 + Hyprland 0.56.2 (`zwlr_virtual_pointer_v1`), sustaining `100.44 pkt/s` (`0.0%` sequence loss across 58 s, `13.19 ms` mean relative latency) and real Wayland cursor centering (`hyprctl cursorpos`).
+- **Windows 11 (`x86_64`):** WinRT BLE central sustaining `98.6–101.0 pkt/s` (`0.0%` sequence loss, `8.9–11.9 ms` mean relative latency, `< 30 ms` max).
+- **macOS (`aarch64`):** Built and unit-tested natively with `CGEventPost` and embedded `NSBluetoothAlwaysUsageDescription` `Info.plist`.
 
-There is no whitelist. The desktop connects to the first peripheral advertising the service (or, in the fallback role, the watch connects to the first desktop advertising it). Quit the receiver when you are not using it.
+See [stage0-hardware-validation.md](stage0-hardware-validation.md) and [acceptance-metrics.md](acceptance-metrics.md) for measured numbers and procedures.
+
+## Device selection and pairing
+
+Pass `--device <SUBSTRING>` to restrict connection to a peripheral whose ID, BD_ADDR, or advertised local name matches case-insensitively (e.g., `--device SM-L310`). Without `--device`, the desktop connects to the first peripheral advertising the pointer service UUID. Cryptographic pairing whitelist is still out of protocol v1; quit the receiver (`Ctrl-C`) when not in use.
 
 ## Rates
 

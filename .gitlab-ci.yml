@@ -65,7 +65,7 @@ android:
   script:
     - cd wearos
     - chmod +x ./gradlew
-    - ./gradlew :app:testDebugUnitTest :app:assembleDebug :probe:assembleDebug --no-daemon
+    - ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease :probe:assembleDebug --no-daemon
   artifacts:
     when: always
     expire_in: 7 days

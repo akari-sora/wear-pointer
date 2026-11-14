@@ -9,5 +9,7 @@ wearos/.idea/
 *.iml
 *.keystore
 *.jks
+key.properties
+wearos/key.properties
 *.apk
 .DS_Store

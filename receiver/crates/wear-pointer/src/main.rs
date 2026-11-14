@@ -5,6 +5,8 @@
 //! rate, loss, and relative latency once a second for Stage 0.
 
 use anyhow::{Context, Result};
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -32,6 +34,8 @@ enum BackendKind {
 
 struct Args {
     debug: bool,
+    adapter: Option<String>,
+    trace: Option<String>,
     role: Role,
     backend: BackendKind,
     config: SessionConfig,
@@ -51,6 +55,11 @@ fn main() -> Result<()> {
     let start = Instant::now();
     let (tx, rx) = mpsc::channel::<LinkEvent>();
     let clock = start;
+    let adapter = args.adapter.clone();
+    let mut trace = match &args.trace {
+        Some(path) => Some(Trace::create(path)?),
+        None => None,
+    };
     thread::Builder::new()
         .name("wear-pointer-bt".into())
         .spawn(move || {
@@ -66,7 +75,7 @@ fn main() -> Result<()> {
             };
             rt.block_on(async move {
                 let mut link = match CentralLink::new() {
-                    Ok(link) => link,
+                    Ok(link) => link.with_adapter(adapter),
                     Err(err) => {
                         eprintln!("wear-pointer: {err:#}");
                         return;
@@ -94,6 +103,9 @@ fn main() -> Result<()> {
             session.set_screen(screen);
         }
         while let Ok(event) = rx.try_recv() {
+            if let Some(trace) = trace.as_mut() {
+                trace.event(start.elapsed().as_secs_f64(), &event);
+            }
             let actions = match event {
                 LinkEvent::Connected { epoch, device } => {
                     link_epoch = epoch;
@@ -120,13 +132,22 @@ fn main() -> Result<()> {
                 }
             };
             for action in actions {
+                if let Some(trace) = trace.as_mut() {
+                    trace.action(start.elapsed().as_secs_f64(), &action);
+                }
                 apply(&mut *backend, action)?;
             }
         }
         let now = start.elapsed().as_secs_f64();
         let (actions, debug) = session.tick(now);
         for action in actions {
+            if let Some(trace) = trace.as_mut() {
+                trace.action(now, &action);
+            }
             apply(&mut *backend, action)?;
+        }
+        if let Some(trace) = trace.as_mut() {
+            trace.flush_if_due(now);
         }
         if args.debug {
             if let Some(debug) = debug {
@@ -164,6 +185,64 @@ fn main() -> Result<()> {
             thread::sleep(next - now_instant);
         } else {
             next = now_instant;
+        }
+    }
+}
+
+/// `--trace FILE`: one line per link event, packet, and cursor action, with
+/// seconds since start. The desktop harness (tools/harness) reads it.
+struct Trace {
+    out: BufWriter<File>,
+    last_flush_s: f64,
+}
+
+impl Trace {
+    fn create(path: &str) -> Result<Self> {
+        let file = File::create(path).with_context(|| format!("--trace {path}"))?;
+        let mut out = BufWriter::new(file);
+        // Lets the harness line trace times up with wall-clock logs.
+        let unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        writeln!(out, "# start_unix {unix:.6}")?;
+        Ok(Self {
+            out,
+            last_flush_s: 0.0,
+        })
+    }
+
+    fn event(&mut self, t: f64, event: &LinkEvent) {
+        let line = match event {
+            LinkEvent::Connected { epoch, device } => format!("{t:.6} connected {epoch} {device}"),
+            LinkEvent::Disconnected { epoch, reason } => format!("{t:.6} disconnected {epoch} {reason}"),
+            LinkEvent::Packet {
+                epoch,
+                received_at_s,
+                bytes,
+            } => {
+                let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+                format!("{received_at_s:.6} rx {epoch} {hex}")
+            }
+        };
+        let _ = writeln!(self.out, "{line}");
+    }
+
+    fn action(&mut self, t: f64, action: &CursorAction) {
+        let line = match action {
+            CursorAction::Move { x, y } => format!("{t:.6} move {x:.1} {y:.1}"),
+            CursorAction::Button { button, down } => {
+                format!("{t:.6} button {button:?} {}", if *down { "down" } else { "up" })
+            }
+            CursorAction::Scroll { delta_px } => format!("{t:.6} scroll {delta_px}"),
+        };
+        let _ = writeln!(self.out, "{line}");
+    }
+
+    fn flush_if_due(&mut self, t: f64) {
+        if t - self.last_flush_s >= 0.2 {
+            let _ = self.out.flush();
+            self.last_flush_s = t;
         }
     }
 }
@@ -208,6 +287,8 @@ fn open_backend(kind: BackendKind, screen: Screen) -> Result<Box<dyn PointerBack
 fn parse_args() -> Result<Args> {
     let mut args = std::env::args().skip(1);
     let mut debug = false;
+    let mut adapter = None;
+    let mut trace = None;
     let mut role = Role::Central;
     let mut backend = if std::env::var_os("WAYLAND_DISPLAY").is_some() {
         BackendKind::Hyprland
@@ -222,6 +303,8 @@ fn parse_args() -> Result<Args> {
                 std::process::exit(0);
             }
             "--debug" => debug = true,
+            "--adapter" => adapter = Some(args.next().context("--adapter NAME, for example hci1")?),
+            "--trace" => trace = Some(args.next().context("--trace FILE")?),
             "--role" => {
                 role = match args.next().as_deref() {
                     Some("central") => Role::Central,
@@ -263,6 +346,8 @@ fn parse_args() -> Result<Args> {
     }
     Ok(Args {
         debug,
+        adapter,
+        trace,
         role,
         backend,
         config,
@@ -290,7 +375,7 @@ wear-pointer — desktop receiver
 
   wear-pointer [--debug] [--role central|peripheral] [--backend hyprland|log|uinput]
                [--speed 1.0] [--steady 0.8] [--quick 0.01] [--dead-zone 0.0]
-               [--screen 1920x1080]
+               [--screen 1920x1080] [--adapter hci1] [--trace FILE]
 
 Stage 0 (no cursor movement):
   cargo run -p wear-pointer -- --debug --backend log
@@ -301,6 +386,8 @@ Stage 1 on Hyprland (default when WAYLAND_DISPLAY is set):
 --speed is WatchPointer's sensitivity: higher reaches the screen edge with less turn.
 --dead-zone is degrees of aim to ignore. Leave it at 0 unless a log shows jitter.
 --role peripheral is the documented fallback and is not implemented on the desktop yet.
+--adapter picks a Bluetooth adapter by name (default: the first one).
+--trace writes every link event, packet, and cursor action to FILE (tools/harness reads it).
 Pairing whitelist is a TODO. Quit the receiver when you are not using it.
 "
     );

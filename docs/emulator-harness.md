@@ -6,8 +6,10 @@ second emulator can connect to it as the desktop would. This checks the watch
 app's Bluetooth path, queue, and packet order end to end without a Watch7.
 
 It does **not** replace Stage 0. The radio, timing, and sensor are simulated;
-a Linux desktop with BlueZ and Hyprland is not involved. Rates and latency on
-an emulator mean nothing.
+a Linux desktop with BlueZ and Hyprland is not involved here (for the full
+ `/dev/vhci` + BlueZ + Hyprland + `wev` harness on Linux, see
+[desktop-harness.md](desktop-harness.md)). Rates and latency on an emulator mean
+nothing.
 
 ## Pieces
 

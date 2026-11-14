@@ -44,6 +44,9 @@ pub enum PumpAdapterEvent {
 pub struct CentralLink {
     service: Uuid,
     pointer: Uuid,
+    /// Substring of btleplug's adapter info (`hci1 (usb:...)`). `None` takes
+    /// the first adapter.
+    adapter: Option<String>,
 }
 
 impl CentralLink {
@@ -51,7 +54,14 @@ impl CentralLink {
         Ok(Self {
             service: Uuid::parse_str(SERVICE_UUID)?,
             pointer: Uuid::parse_str(POINTER_UUID)?,
+            adapter: None,
         })
+    }
+
+    /// Use the adapter whose info contains `name`, for example `hci1`.
+    pub fn with_adapter(mut self, name: Option<String>) -> Self {
+        self.adapter = name;
+        self
     }
 }
 
@@ -65,14 +75,24 @@ impl Default for CentralLink {
 impl PointerLink for CentralLink {
     async fn run(&mut self, incoming: Sender<LinkEvent>, clock: Instant) -> anyhow::Result<()> {
         let manager = Manager::new().await.context("bluetooth manager")?;
-        let adapter = manager
-            .adapters()
-            .await
-            .context("listing bluetooth adapters")?
-            .into_iter()
-            .next()
-            .ok_or_else(|| anyhow!("no bluetooth adapter. Is BlueZ running?"))?;
-        eprintln!("wear-pointer: bluetooth adapter ready, role=central");
+        let adapters = manager.adapters().await.context("listing bluetooth adapters")?;
+        let mut chosen = None;
+        for candidate in adapters {
+            let info = candidate.adapter_info().await.unwrap_or_default();
+            let wanted = match &self.adapter {
+                Some(name) => info.contains(name.as_str()),
+                None => true,
+            };
+            if wanted {
+                chosen = Some((candidate, info));
+                break;
+            }
+        }
+        let (adapter, info) = chosen.ok_or_else(|| match &self.adapter {
+            Some(name) => anyhow!("no bluetooth adapter matching {name:?}"),
+            None => anyhow!("no bluetooth adapter. Is BlueZ running?"),
+        })?;
+        eprintln!("wear-pointer: bluetooth adapter ready ({info}), role=central");
         // TODO(pairing): pin the first watch, or load an address whitelist.
         // A service-UUID match is not authentication.
         let mut epoch = 0u64;
@@ -169,33 +189,49 @@ async fn session(
     let id = peripheral.id();
     eprintln!("wear-pointer: connecting to {name} ({id})");
     let id_text = id.to_string();
-    tokio::time::timeout(STEP_TIMEOUT, peripheral.connect())
-        .await
-        .context("connect timed out")?
-        .context("connect")?;
-    tokio::time::timeout(STEP_TIMEOUT, peripheral.discover_services())
-        .await
-        .context("discover timed out")?
-        .context("discover services")?;
-    let characteristic = peripheral
-        .characteristics()
-        .into_iter()
-        .find(|candidate| candidate.uuid == pointer)
-        .ok_or_else(|| anyhow!("watch is missing the pointer characteristic"))?;
+    let characteristic = match open_characteristic(&peripheral, pointer).await {
+        Ok(c) => c,
+        Err(err) => {
+            peripheral.disconnect().await.ok();
+            return Err(err);
+        }
+    };
     // Subscribe only after the notification stream exists, so the watch's
     // first Info (sent when the CCCD is written) has a consumer.
-    let notifications = peripheral.notifications().await.context("notifications")?;
-    let adapter_events = adapter.events().await.context("adapter events")?;
+    let notifications = match peripheral.notifications().await.context("notifications") {
+        Ok(n) => n,
+        Err(err) => {
+            peripheral.disconnect().await.ok();
+            return Err(err);
+        }
+    };
+    let adapter_events = match adapter.events().await.context("adapter events") {
+        Ok(e) => e,
+        Err(err) => {
+            peripheral.disconnect().await.ok();
+            return Err(err);
+        }
+    };
     incoming
         .send(LinkEvent::Connected {
             epoch,
             device: format!("{name} ({id_text})"),
         })
         .ok();
-    tokio::time::timeout(STEP_TIMEOUT, peripheral.subscribe(&characteristic))
+    if let Err(err) = tokio::time::timeout(STEP_TIMEOUT, peripheral.subscribe(&characteristic))
         .await
-        .context("subscribe timed out")?
-        .context("subscribe")?;
+        .context("subscribe timed out")
+        .and_then(|r| r.context("subscribe"))
+    {
+        incoming
+            .send(LinkEvent::Disconnected {
+                epoch,
+                reason: "subscribe failed".to_string(),
+            })
+            .ok();
+        peripheral.disconnect().await.ok();
+        return Err(err);
+    }
     eprintln!("wear-pointer: subscribed. --debug prints rate, loss, and latency once a second");
 
     let notify_bytes = Box::pin(notifications.filter_map(move |notification| {
@@ -223,6 +259,25 @@ async fn session(
         .ok();
     peripheral.disconnect().await.ok();
     Ok(reason)
+}
+
+async fn open_characteristic(
+    peripheral: &btleplug::platform::Peripheral,
+    pointer: Uuid,
+) -> anyhow::Result<btleplug::api::Characteristic> {
+    tokio::time::timeout(STEP_TIMEOUT, peripheral.connect())
+        .await
+        .context("connect timed out")?
+        .context("connect")?;
+    tokio::time::timeout(STEP_TIMEOUT, peripheral.discover_services())
+        .await
+        .context("discover timed out")?
+        .context("discover services")?;
+    peripheral
+        .characteristics()
+        .into_iter()
+        .find(|candidate| candidate.uuid == pointer)
+        .ok_or_else(|| anyhow!("watch is missing the pointer characteristic"))
 }
 
 async fn wait_for_watch(
@@ -276,7 +331,18 @@ async fn poll_peripherals(
 
 async fn advertises_service(peripheral: &btleplug::platform::Peripheral, service: Uuid) -> bool {
     match peripheral.properties().await {
-        Ok(Some(props)) => props.services.iter().any(|uuid| *uuid == service),
+        Ok(Some(props)) => {
+            // On BlueZ, btleplug's `adapter.events()` synthesizes `DeviceDiscovered`
+            // for every cached D-Bus device, including dead RPAs from an earlier
+            // watch session whose `RSSI` was cleared on disconnect. Requiring a
+            // live `RSSI` skips dead RPAs instead of stalling `connect()` on them.
+            let live = if cfg!(target_os = "linux") {
+                props.rssi.is_some()
+            } else {
+                true
+            };
+            live && props.services.iter().any(|uuid| *uuid == service)
+        }
         _ => false,
     }
 }

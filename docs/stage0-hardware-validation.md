@@ -1,6 +1,6 @@
 # Stage 0 — Galaxy Watch7 and Omarchy
 
-No step below has been run by the author of this tree. `cargo test` and the Wear OS unit tests do not open a radio and do not move a cursor. This checklist is what to run on the watch and on the Hyprland session, and what to write down.
+No step below has been run on a physical Galaxy Watch7 yet. Automated end-to-end protocol, BlueZ `/dev/vhci`, and Hyprland `zwlr_virtual_pointer_v1` checks run in [desktop-harness.md](desktop-harness.md), and two-emulator BLE checks run in [emulator-harness.md](emulator-harness.md), but neither tests Samsung's Watch7 radio firmware, real 2.4 GHz RF loss, wrist detection, or hardware sensor FIFO behaviour during suspend. This checklist is what to run on the physical Watch7 and Omarchy / Hyprland machine, and what to write down.
 
 Do the log backend before the Hyprland backend. A bad packet stream should not be the first thing that moves the pointer.
 
@@ -110,7 +110,7 @@ That backend is relative. The first sample sets the origin and does not jump. It
 
 ## Stop the watch
 
-The on-watch **Stop** button, and the notification Stop action, unregister sensors, stop advertising, close the GATT server, release the partial wake lock, and stop the service. Pause means **tracks while awake**: the wake lock is released, sensors stay registered, and aim packets stop. If the gyro timestamps show a hole longer than half a second while paused, the watch recenters on resume, because non-wakeup sensors can drop samples while the CPU is suspended. Press Center if the cursor is still off. Closing the screen is not Stop. Record in the Stage 0 log whether pausing with the screen off produced a recenter, and the `gyroGapsOver50ms=` counts.
+The on-watch **Stop** button, and the notification Stop action, unregister sensors, stop advertising, close the GATT server, release the partial wake lock, and stop the service. Pause means **tracks while awake**: the wake lock is released, sensors stay registered, and aim packets stop. If the gyro timestamps show a hole longer than half a second while paused, the watch recenters on resume, because non-wakeup sensors can drop samples while the CPU is suspended. Press Center if the cursor is still off. Closing the screen is not Stop. Record in the Stage 0 log whether pausing with the screen off produced a recenter, and the `gyroGapsOver50ms=` counts (to force a deterministic >500 ms sensor hole over `adb` without root: `adb shell cmd sensorservice set-uid-state dev.wearpointer idle`, wait 2 s, then `adb shell cmd sensorservice reset-uid-state dev.wearpointer`).
 
 A drag-up that the stack refuses as busy is retried with the same bytes. Any other refusal, a failed callback, or no callback within 1 s drops the Bluetooth link instead of sending the drag again: the watch goes silent and rebuilds its GATT server. The desktop releases the mouse button after 300 ms without aim and prints `watch disconnected (no packet for 3 s; watch stopped sending)` before scanning again. On a debug build, `adb shell am broadcast -a dev.wearpointer.DEBUG_DROP_LINK` forces that path while you hold a drag; record whether the button was released and how long reconnecting took. The 300 ms no-aim rule does not cover a lost drag-up while aim packets keep arriving.
 

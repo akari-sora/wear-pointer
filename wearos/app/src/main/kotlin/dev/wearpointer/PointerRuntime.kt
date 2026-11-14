@@ -1,9 +1,11 @@
 package dev.wearpointer
 
 import android.annotation.SuppressLint
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -74,6 +76,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
     private var infoTicks = 0
     private var pendingScroll = 0.0
     private var statsRequested = false
+    private var debugReceiver: BroadcastReceiver? = null
 
     @Synchronized
     fun ensureStarted(context: Context) {
@@ -94,7 +97,25 @@ object PointerRuntime : SensorEventListener, LinkListener {
             startSensors()
             openTransport(role)
         }
+        registerDebugReceiver(app)
         started = true
+    }
+
+    /**
+     * Debuggable builds only. `adb shell am broadcast -a dev.wearpointer.DEBUG_DROP_LINK`
+     * runs the same drop path as a failed notify, so Stage 0 and the emulator
+     * harness can check that the desktop releases a held drag.
+     */
+    private fun registerDebugReceiver(context: Context) {
+        if (debugReceiver != null) return
+        if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                handler?.post { transport?.dropLinkForTest("debug drop") }
+            }
+        }
+        context.registerReceiver(receiver, IntentFilter(ACTION_DEBUG_DROP_LINK), Context.RECEIVER_EXPORTED)
+        debugReceiver = receiver
     }
 
     fun setRole(role: Role) {
@@ -174,6 +195,10 @@ object PointerRuntime : SensorEventListener, LinkListener {
         }
         started = false
         paused = false
+        debugReceiver?.let { receiver ->
+            runCatching { appContext?.unregisterReceiver(receiver) }
+        }
+        debugReceiver = null
         sensorManager?.unregisterListener(this)
         try {
             transport?.stop()
@@ -455,6 +480,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
         return runCatching { Role.valueOf(name ?: "") }.getOrDefault(Role.WATCH_ADVERTISES)
     }
 
+    private const val ACTION_DEBUG_DROP_LINK = "dev.wearpointer.DEBUG_DROP_LINK"
     private const val PREFS = "wear-pointer"
     private const val KEY_ROLE = "role"
     private const val SAMPLE_US = 10_000

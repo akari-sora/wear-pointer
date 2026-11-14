@@ -3,6 +3,7 @@ target/
 wearos/.gradle/
 wearos/build/
 wearos/app/build/
+wearos/probe/build/
 wearos/local.properties
 wearos/.idea/
 *.iml

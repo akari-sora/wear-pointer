@@ -243,6 +243,10 @@ class WatchCentral(
         queue.clear()
     }
 
+    override fun dropLinkForTest(reason: String) {
+        handler.post { dropLink(reason) }
+    }
+
     override fun takeCounters(): SendCounters {
         val raw = queue.takeCounters()
         return SendCounters(raw.accepted, raw.completed, raw.rejected, raw.coalesced)

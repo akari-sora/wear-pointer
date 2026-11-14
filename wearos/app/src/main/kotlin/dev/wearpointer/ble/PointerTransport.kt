@@ -30,6 +30,9 @@ interface PointerTransport {
 
     /** Counts since the previous call: API accept, callback success, callback/API failure, coalesced aims. */
     fun takeCounters(): SendCounters = SendCounters()
+
+    /** Debug builds only: take the same path as a failed notify. */
+    fun dropLinkForTest(reason: String) = Unit
 }
 
 interface LinkListener {

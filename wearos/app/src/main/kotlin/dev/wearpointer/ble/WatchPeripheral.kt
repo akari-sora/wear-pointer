@@ -381,9 +381,20 @@ class WatchPeripheral(
         queue.clear()
     }
 
+    /**
+     * End the link so the desktop sees a disconnect and releases buttons.
+     *
+     * `cancelConnection` alone does not end a link the central opened: on an
+     * API 35 Wear emulator the stack logs `bta_gatts_cancel_open: failed` and
+     * the central stays connected and subscribed, while this side has stopped
+     * sending. Closing the GATT server releases this app's hold on the link,
+     * so the server is closed and rebuilt; [onServiceAdded] restarts
+     * advertising. Even if the link survived, the watch is silent, so the
+     * desktop's 300 ms no-aim rule still releases a held drag.
+     */
     @SuppressLint("MissingPermission")
     private fun dropLink(reason: String) {
-        Log.w(TAG, reason)
+        Log.w(TAG, "dropping link: $reason")
         val devices = subscribed.toList()
         subscribed.clear()
         resetFlight()
@@ -394,9 +405,14 @@ class WatchPeripheral(
                 Log.w(TAG, "cancelConnection", err)
             }
         }
+        tearDownServerOnly()
         listener.onLinkFailed(reason)
         listener.onConnectionChanged(false)
-        if (running && radioOn) restartAdvertising()
+        if (running && radioOn) openServer()
+    }
+
+    override fun dropLinkForTest(reason: String) {
+        onHandler { dropLink(reason) }
     }
 
     override fun takeCounters(): SendCounters {

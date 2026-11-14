@@ -33,8 +33,9 @@ Delivery rules on the watch:
 
 - `notifyCharacteristicChanged` returns busy (`ERROR_GATT_WRITE_REQUEST_BUSY`): the stack did not take the bytes. The same bytes, same `sequence`, are handed over again after 5, 10, 20, 40 ms (five attempts in total). Then the link is dropped.
 - Any other synchronous error: the link is dropped at once.
-- `onNotificationSent` with a failure status, or no callback within 1 s: delivery is unknown, so nothing is resent (a click could be applied twice). A failed aim is counted and the queue moves on. A failed click, drag, Center, or Pause drops the link, and the desktop releases a held button on disconnect. This matters for drag-up: while aims keep arriving, the 300 ms no-aim release never fires.
-- When the link drops, packets still queued are discarded with it. The next link starts at `sequence` 0. `notifies_ok` in a stats packet is the number of notifications whose callback reported success in the window. `notifies_drop` is API rejections plus callback failures. Aims coalesced while one was in flight are counted in logcat (`coalesced=`), not as radio loss.
+- `onNotificationSent` with a failure status, or no callback within 1 s: delivery is unknown, so nothing is resent (a click could be applied twice). A failed aim is counted and the queue moves on. A failed click, drag, Center, or Pause drops the link. This matters for drag-up: while aims keep arriving, the desktop's 300 ms no-aim release never fires.
+- Dropping the link means: the watch stops sending, discards the queue, calls `cancelConnection`, and closes and rebuilds its GATT server. Android cannot reliably end a link the central opened (on the API 35/36 emulators the central stays connected and only gets Service Changed; see [docs/emulator-harness.md](../docs/emulator-harness.md)). The desktop therefore does not rely on a disconnect event: the watch going silent releases a held drag after 300 ms (no aim), and **no packet of any kind for 3 s ends the desktop session**, which then scans and reconnects. While connected and awake the watch sends a stats packet every second, paused or not. If the watch CPU suspends during Pause, the desktop ends the session after 3 s and reconnects once the watch advertises again.
+- The next link starts at `sequence` 0. `notifies_ok` in a stats packet is the number of notifications whose callback reported success in the window. `notifies_drop` is API rejections plus callback failures. Aims coalesced while one was in flight are counted in logcat (`coalesced=`), not as radio loss.
 
 ### Role: desktop is peripheral (fallback)
 
@@ -99,7 +100,7 @@ While paused the watch does not send aim. The desktop stops moving the cursor an
 
 Pause keeps the sensor listener and releases the wake lock, so the heading integrates **while the watch is awake**. Non-wakeup sensors can lose events while the CPU is suspended (hardware FIFO full, or no FIFO). The watch checks gyro event timestamps: a hole longer than 500 ms seen while paused makes the watch send Resume then Center on resume; a hole seen while active sends Center at once. A late but complete FIFO has no hole and does not recenter. Whether a Watch7 opens such holes is a Stage 0 measurement.
 
-Stop on the watch unregisters sensors and closes the link. Queued packets are discarded; the disconnect releases a held button on the desktop.
+Stop on the watch unregisters sensors and closes the GATT server. Queued packets are discarded. The desktop releases a held button after 300 ms without aim and ends the session after 3 s of silence, whether or not a disconnect event arrives.
 
 ### 6 Info (9 to 20 bytes)
 

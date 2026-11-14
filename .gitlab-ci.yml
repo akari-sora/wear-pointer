@@ -33,6 +33,7 @@ rust:
     - cargo test --workspace 2>&1 | tee rust-test.log
     - cargo build -p wear-pointer --release
     - cargo build -p wear-pointer --features uinput
+    - cargo build -p wear-pointer-core --examples
   artifacts:
     when: always
     expire_in: 7 days
@@ -64,7 +65,7 @@ android:
   script:
     - cd wearos
     - chmod +x ./gradlew
-    - ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon
+    - ./gradlew :app:testDebugUnitTest :app:assembleDebug :probe:assembleDebug --no-daemon
   artifacts:
     when: always
     expire_in: 7 days

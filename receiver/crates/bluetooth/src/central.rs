@@ -15,6 +15,14 @@ use wear_pointer_core::{POINTER_UUID, SERVICE_UUID};
 
 const STEP_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// No notification at all for this long ends the session. The watch sends a
+/// stats packet every second while it is connected, paused or not. Android
+/// cannot reliably drop a link the desktop opened: when the watch closes its
+/// GATT server (Stop, link drop after a failed notify, app restart) the link
+/// can stay up with this subscription dead, and no disconnect event arrives.
+/// Seen on two API 35/36 emulators; see docs/emulator-harness.md.
+pub const SILENCE_TIMEOUT: Duration = Duration::from_secs(3);
+
 /// Why `pump_link` returned. The notification stream staying open is not a
 /// reason to keep the session; `DeviceDisconnected` is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,6 +30,8 @@ pub enum PumpStop {
     DeviceDisconnected,
     NotificationsEnded,
     EventsEnded,
+    /// Nothing arrived for the silence timeout.
+    Silent,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -88,19 +98,25 @@ impl PointerLink for CentralLink {
 }
 
 /// Read notifications until the peripheral disconnects, even if the
-/// notification stream stays open across the drop (btleplug 0.9+).
+/// notification stream stays open across the drop (btleplug 0.9+), or until
+/// nothing has arrived for `silence`.
 pub async fn pump_link(
     mut notifications: Pin<Box<dyn futures::Stream<Item = Vec<u8>> + Send>>,
     mut events: Pin<Box<dyn futures::Stream<Item = PumpAdapterEvent> + Send>>,
     epoch: u64,
     clock: Instant,
     incoming: &Sender<LinkEvent>,
+    silence: Duration,
 ) -> PumpStop {
+    let quiet = tokio::time::sleep(silence);
+    tokio::pin!(quiet);
     loop {
         tokio::select! {
+            () = &mut quiet => return PumpStop::Silent,
             packet = notifications.next() => {
                 match packet {
                     Some(bytes) => {
+                        quiet.as_mut().reset(tokio::time::Instant::now() + silence);
                         let event = LinkEvent::Packet {
                             epoch,
                             received_at_s: clock.elapsed().as_secs_f64(),
@@ -192,11 +208,12 @@ async fn session(
         }
         _ => PumpAdapterEvent::Other,
     }));
-    let stop = pump_link(notify_bytes, disconnects, epoch, clock, incoming).await;
+    let stop = pump_link(notify_bytes, disconnects, epoch, clock, incoming, SILENCE_TIMEOUT).await;
     let reason = match stop {
         PumpStop::DeviceDisconnected => "device disconnected",
         PumpStop::NotificationsEnded => "notification stream ended",
         PumpStop::EventsEnded => "adapter events ended",
+        PumpStop::Silent => "no packet for 3 s; watch stopped sending",
     };
     incoming
         .send(LinkEvent::Disconnected {
@@ -281,6 +298,7 @@ mod tests {
             7,
             clock,
             &incoming_tx,
+            Duration::from_secs(30),
         );
         event_tx
             .unbounded_send(PumpAdapterEvent::Disconnected)
@@ -292,5 +310,64 @@ mod tests {
         assert_eq!(stop, PumpStop::DeviceDisconnected);
         let _keep_notifications_open = notify_tx;
         assert!(incoming_rx.try_recv().is_err());
+    }
+
+    /// The watch closed its GATT server but the link stayed up: the stream
+    /// stays open, no disconnect event comes, and nothing arrives.
+    #[tokio::test]
+    async fn a_silent_link_ends_the_session() {
+        let (notify_tx, notify_rx) = mpsc::unbounded::<Vec<u8>>();
+        let (_event_tx, event_rx) = mpsc::unbounded();
+        let (incoming_tx, incoming_rx) = std::sync::mpsc::channel();
+        let clock = Instant::now();
+        notify_tx.unbounded_send(vec![1, 8]).expect("open");
+        let stop = tokio::time::timeout(
+            Duration::from_secs(2),
+            pump_link(
+                Box::pin(notify_rx),
+                Box::pin(event_rx),
+                3,
+                clock,
+                &incoming_tx,
+                Duration::from_millis(150),
+            ),
+        )
+        .await
+        .expect("silence watchdog fired");
+        assert_eq!(stop, PumpStop::Silent);
+        assert!(matches!(incoming_rx.try_recv(), Ok(LinkEvent::Packet { epoch: 3, .. })));
+        let _keep_open = notify_tx;
+    }
+
+    /// Packets keep resetting the watchdog.
+    #[tokio::test]
+    async fn steady_packets_keep_the_session() {
+        let (notify_tx, notify_rx) = mpsc::unbounded::<Vec<u8>>();
+        let (_event_tx, event_rx) = mpsc::unbounded();
+        let (incoming_tx, _incoming_rx) = std::sync::mpsc::channel();
+        let clock = Instant::now();
+        let feeder = tokio::spawn(async move {
+            for _ in 0..10 {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                if notify_tx.unbounded_send(vec![1, 8]).is_err() {
+                    break;
+                }
+            }
+            notify_tx
+        });
+        let started = Instant::now();
+        let stop = pump_link(
+            Box::pin(notify_rx),
+            Box::pin(event_rx),
+            1,
+            clock,
+            &incoming_tx,
+            Duration::from_millis(150),
+        )
+        .await;
+        assert_eq!(stop, PumpStop::Silent);
+        // 10 packets 50 ms apart, then 150 ms of quiet.
+        assert!(started.elapsed() >= Duration::from_millis(600));
+        drop(feeder);
     }
 }

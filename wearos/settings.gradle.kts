@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "wear-pointer"
 include(":app")
+include(":probe")

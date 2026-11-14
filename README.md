@@ -46,7 +46,7 @@ Physical hardware measurements (`100.44 pkt/s`, `0.0%` sequence loss, `13.19 ms`
 
 CI jobs require both tags `r9700x` and `docker` (runner 57287642). `r9700x-docker` is that runner's description, not a tag. Shared runners do not have this pair. The `yes | sdkmanager` pipe is not used; it exits 141 under `pipefail` even when sdkmanager succeeds. CI covers unit tests and builds only, not Watch7 or Hyprland behaviour. [docs/emulator-harness.md](docs/emulator-harness.md) runs the watch app against a second emulator on macOS; [docs/desktop-harness.md](docs/desktop-harness.md) runs the watch emulator over `/dev/vhci` into real BlueZ, `wear-pointer`, Hyprland, and `wev`. Neither replaces Stage 0 on a physical Watch7.
 
-Stop on the watch is the Stop button. Pause tracks while awake (wake lock off, sensors still registered). A gyro timestamp hole over 500 ms, while paused or active, recenters. If Stop did not run: `adb shell am force-stop dev.wearpointer` (`-s <serial>` when several devices are attached).
+Stop on the watch is the Stop button. Pause tracks while awake (wake lock off, sensors still registered). A gyro timestamp hole over 500 ms, while paused or active, recenters. If Stop did not run: `adb shell am force-stop dev.wearpointer` (debug) or `adb shell am force-stop dev.wearpointer.app` (release; add `-s <serial>` when several devices are attached).
 
 ## Install from release
 
@@ -57,12 +57,12 @@ Signed Wear OS APKs, Linux `x86_64`, macOS `aarch64`, and Windows `x86_64` recei
 sha256sum -c SHA256SUMS.txt
 
 # 1. Install the signed Wear OS APK onto your watch over ADB
-adb install -r wear-pointer-v0.2.0-wearos.apk
+adb install -r wear-pointer-v0.2.1-wearos.apk
 
 # 2. Extract and run the desktop receiver (Linux / macOS / Windows)
-tar -xzf wear-pointer-v0.2.0-x86_64-linux.tar.gz
-./wear-pointer-v0.2.0-x86_64-linux/wear-pointer --debug --device SM-L310 --backend log
-./wear-pointer-v0.2.0-x86_64-linux/wear-pointer --debug --device SM-L310
+tar -xzf wear-pointer-v0.2.1-x86_64-linux.tar.gz
+./wear-pointer-v0.2.1-x86_64-linux/wear-pointer --debug --device SM-L310 --backend log
+./wear-pointer-v0.2.1-x86_64-linux/wear-pointer --debug --device SM-L310
 ```
 
 ## Build the receiver

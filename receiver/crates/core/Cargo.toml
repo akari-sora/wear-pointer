@@ -1,0 +1,12 @@
+[package]
+name = "wear-pointer-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Pointer packets, aim math, 1€ filter, and the cursor session."
+
+[dependencies]
+
+[dev-dependencies]
+serde_json = "1.0"

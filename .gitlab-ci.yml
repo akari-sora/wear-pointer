@@ -1,0 +1,76 @@
+# Self-hosted runner 57287642. Its description is "r9700x-docker"; that string
+# is not a tag. Jobs must list both real tags. Shared runners do not have
+# this pair, so they will not pick these jobs up. Do not drop either tag.
+#
+# A green pipeline means unit tests and builds passed on that runner. It is
+# not a Watch7 or Hyprland run.
+
+default:
+  tags:
+    - r9700x
+    - docker
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+stages:
+  - test
+
+rust:
+  stage: test
+  tags:
+    - r9700x
+    - docker
+  image: rust:1-bookworm
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends pkg-config libdbus-1-dev
+  script:
+    - cd receiver
+    - set -o pipefail
+    - cargo test --workspace 2>&1 | tee rust-test.log
+    - cargo build -p wear-pointer --release
+    - cargo build -p wear-pointer --features uinput
+    - cargo build -p wear-pointer-core --examples
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - receiver/rust-test.log
+
+android:
+  stage: test
+  tags:
+    - r9700x
+    - docker
+  image: eclipse-temurin:21-jdk-jammy
+  variables:
+    ANDROID_HOME: /opt/android-sdk
+    ANDROID_SDK_ROOT: /opt/android-sdk
+  # Do not pipe yes into sdkmanager. With pipefail, yes exits 141
+  # (SIGPIPE) after sdkmanager closes stdin, and the job fails even though
+  # the packages were installed. The license file is written instead.
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends wget unzip ca-certificates
+    - mkdir -p "$ANDROID_HOME/cmdline-tools"
+    - wget -q -O /tmp/cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+    - unzip -q /tmp/cmdtools.zip -d /tmp/cmdtools
+    - mv /tmp/cmdtools/cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
+    - mkdir -p "$ANDROID_HOME/licenses"
+    - printf '%s\n' "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_HOME/licenses/android-sdk-license"
+    - '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0" "platform-tools"'
+  script:
+    - cd wearos
+    - chmod +x ./gradlew
+    - ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease :probe:assembleDebug --no-daemon
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - wearos/app/build/reports/tests/testDebugUnitTest/
+      - wearos/app/build/outputs/apk/debug/*.apk
+    reports:
+      junit: wearos/app/build/test-results/testDebugUnitTest/*.xml

@@ -1,0 +1,21 @@
+[package]
+name = "wear-pointer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Desktop receiver for the wear-pointer watch app."
+
+[[bin]]
+name = "wear-pointer"
+path = "src/main.rs"
+
+[features]
+uinput = ["wear-pointer-platform/uinput"]
+
+[dependencies]
+anyhow = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+wear-pointer-bluetooth = { path = "../bluetooth" }
+wear-pointer-core = { path = "../core" }
+wear-pointer-platform = { path = "../platform" }

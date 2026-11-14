@@ -1,0 +1,35 @@
+#cloud-config
+users:
+  - name: harness
+    uid: 1000
+    groups: [wheel, video, render, input]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - @SSH_KEY@
+write_files:
+  - path: /etc/pacman.d/mirrorlist
+    content: |
+      Server = https://archlinux.cs.nycu.edu.tw/$repo/os/$arch
+      Server = https://free.nchc.org.tw/arch/$repo/os/$arch
+      Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch
+  - path: /etc/udev/rules.d/90-vhci.rules
+    content: |
+      KERNEL=="vhci", MODE="0666"
+  - path: /etc/modules-load.d/vhci.conf
+    content: |
+      hci_vhci
+runcmd:
+  - sed -i 's/^#ParallelDownloads.*/ParallelDownloads = 8/' /etc/pacman.conf
+  - pacman-key --init
+  - pacman-key --populate archlinux
+  - pacman -Syu --noconfirm --needed hyprland seatd bluez bluez-utils mesa wev python python-pip dbus
+  - groupadd -f seat
+  - usermod -aG seat harness
+  - loginctl enable-linger harness
+  - systemctl enable --now seatd bluetooth
+  - modprobe hci_vhci
+  - chmod 666 /dev/vhci
+  - sudo -u harness python -m venv /home/harness/bumble
+  - sudo -u harness /home/harness/bumble/bin/pip install -q bumble
+  - touch /var/lib/wp-provisioned

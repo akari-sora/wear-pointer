@@ -1,0 +1,15 @@
+target/
+**/*.rs.bk
+wearos/.gradle/
+wearos/build/
+wearos/app/build/
+wearos/probe/build/
+wearos/local.properties
+wearos/.idea/
+*.iml
+*.keystore
+*.jks
+key.properties
+wearos/key.properties
+*.apk
+.DS_Store

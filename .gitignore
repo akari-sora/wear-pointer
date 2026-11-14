@@ -12,4 +12,6 @@ wearos/.idea/
 key.properties
 wearos/key.properties
 *.apk
+tools/promo/node_modules/
+tools/promo/out/
 .DS_Store

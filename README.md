@@ -7,6 +7,10 @@
 > Canonical repository and issues: https://gitlab.com/aa22396584/wear-pointer  
 > Releases and downloads: https://gitlab.com/aa22396584/wear-pointer/-/releases
 
+[![wear-pointer synchronized Wear OS + Hyprland 0.57 live demo](docs/assets/demo-preview.gif)](https://gitlab.com/aa22396584/wear-pointer/-/raw/main/docs/assets/demo-16x9-en.mp4)
+
+> **Full HD Demo Videos (1080p 30fps):** [16:9 繁體中文](https://gitlab.com/aa22396584/wear-pointer/-/raw/main/docs/assets/demo-16x9-zh.mp4) · [16:9 English](https://gitlab.com/aa22396584/wear-pointer/-/raw/main/docs/assets/demo-16x9-en.mp4) · [9:16 繁體中文 (Reels/Threads)](https://gitlab.com/aa22396584/wear-pointer/-/raw/main/docs/assets/demo-9x16-zh.mp4) · [9:16 English (Shorts/Reels)](https://gitlab.com/aa22396584/wear-pointer/-/raw/main/docs/assets/demo-9x16-en.mp4)
+
 ![wear-pointer circular Wear OS spatial pointer showcase](docs/assets/showcase.png)
 
 Targeted at Galaxy Watch7 (Wear OS) with a Rust desktop receiver for Omarchy / Hyprland (`zwlr_virtual_pointer_v1`, plus optional Linux `uinput` and `log` backends; macOS and Windows backends are skeletons).
@@ -22,7 +26,8 @@ This tree has **not** been run on a physical Watch7 yet. The full Linux desktop 
 | `wearos/` | Kotlin / Jetpack Compose for Wear OS. Sensors, GATT server, tap / hold / right-click / pause / center, rotary scroll. |
 | `protocol/` | Protocol v1: UUIDs, packet bytes, the aim test vector. |
 | `receiver/` | Rust workspace. `core` (tested motion), `bluetooth` (btleplug central), `platform` (Hyprland, log, optional uinput, macOS/Windows skeletons). |
-| `docs/` | Architecture, Stage 0 checklist, acceptance targets, BLE fallback. |
+| `tools/` | End-to-end Linux/Hyprland BLE harness (`tools/harness/`) and Remotion promo video project (`tools/promo/`). |
+| `docs/` | Architecture, Stage 0 checklist, acceptance targets, BLE fallback, showcase media (`docs/assets/`). |
 
 ## Current status
 

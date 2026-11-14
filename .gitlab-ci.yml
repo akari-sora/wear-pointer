@@ -2,8 +2,8 @@
 # is not a tag. Jobs must list both real tags. Shared runners do not have
 # this pair, so they will not pick these jobs up. Do not drop either tag.
 #
-# This file has not been executed by this checkout. A green commit is not a
-# green pipeline.
+# A green pipeline means unit tests and builds passed on that runner. It is
+# not a Watch7 or Hyprland run.
 
 default:
   tags:

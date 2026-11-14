@@ -22,6 +22,7 @@ import dev.wearpointer.ble.SendCounters
 import dev.wearpointer.ble.WatchCentral
 import dev.wearpointer.ble.WatchPeripheral
 import dev.wearpointer.motion.AimTracker
+import dev.wearpointer.motion.SensorGapMonitor
 import dev.wearpointer.proto.Packets
 import dev.wearpointer.proto.nanosToUs
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,7 +68,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
     private var paused = false
     private var samples = 0
     private var dropped = 0
-    private var lastGyroNs = 0L
+    private val gapMonitor = SensorGapMonitor(SENSOR_GAP_NS)
     private var windowStartNs = 0L
     private var sensorHzX10 = 0
     private var infoTicks = 0
@@ -110,30 +111,46 @@ object PointerRuntime : SensorEventListener, LinkListener {
         }
     }
 
+    /**
+     * Pause: no aim is built or sent, the wake lock is released, the sensor
+     * listener stays so the heading keeps integrating while the CPU is awake.
+     * The aim waiting in the queue is dropped by the Pause packet.
+     *
+     * Resume: if [gapMonitor] saw a hole in the gyro timestamps while paused,
+     * the heading is rebased with a Center after the Resume packet. A hole
+     * that only shows up once a late FIFO is delivered after resume is caught
+     * by the active-path check in [onSensorChanged].
+     */
     fun togglePause() {
         handler?.post {
             paused = !paused
             if (paused) {
                 releaseWakeLock()
+                send(Packets.pause(0, nowUs(), true), reliable = true)
                 _state.update { it.copy(paused = true, status = "Paused — tracks while awake") }
-            } else {
-                holdWakeLock()
-                val gapNs = if (lastGyroNs == 0L) 0L else SystemClock.elapsedRealtimeNanos() - lastGyroNs
-                if (gapNs > SENSOR_GAP_NS) {
-                    // Non-wakeup sensors can drop a FIFO while the CPU was down.
-                    // The heading across that hole is missing, so start a new base.
-                    tracker.center()
-                    send(Packets.center(0, nowUs()), reliable = true)
-                    _state.update {
-                        it.copy(paused = false, status = "Tracks while awake — press Center if the cursor is off")
-                    }
-                } else {
-                    _state.update { it.copy(paused = false, status = if (it.connected) "Connected" else it.status) }
-                }
+                return@post
             }
-            // Pause and Center drop aims still waiting. Stop clears the whole queue via transport.stop().
-            send(Packets.pause(0, nowUs(), paused), reliable = true)
+            holdWakeLock()
+            send(Packets.pause(0, nowUs(), false), reliable = true)
+            if (gapMonitor.onResume()) {
+                rebase(nowUs())
+            } else {
+                _state.update { it.copy(paused = false, status = if (it.connected) "Connected" else it.status) }
+            }
+            _state.update { it.copy(paused = false) }
         }
+    }
+
+    /**
+     * New calibration base on both ends. The queue drops the aim built on the
+     * old one. Without a link only the watch rebases; the desktop has no base
+     * of its own and maps the next aim it receives.
+     */
+    private fun rebase(timestampUs: Long) {
+        tracker.center()
+        if (transport?.ready != true) return
+        send(Packets.center(0, timestampUs), reliable = true)
+        _state.update { it.copy(status = "Sensor gap — recentered; press Center if the cursor is off") }
     }
 
     /**
@@ -170,7 +187,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
         thread = null
         handler = null
         samples = 0
-        lastGyroNs = 0L
+        gapMonitor.reset()
         _state.update {
             it.copy(
                 status = "Stopped",
@@ -229,7 +246,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
         }
         _state.update { it.copy(bluetoothGranted = true, status = "Starting radio") }
         val next: PointerTransport = when (role) {
-            Role.WATCH_ADVERTISES -> WatchPeripheral(context, this)
+            Role.WATCH_ADVERTISES -> WatchPeripheral(context, handler ?: return, this)
             Role.DESKTOP_ADVERTISES -> WatchCentral(context, handler ?: return, this)
         }
         transport = next
@@ -266,15 +283,10 @@ object PointerRuntime : SensorEventListener, LinkListener {
             }
             Sensor.TYPE_GYROSCOPE -> {
                 if (!haveGravity) return
-                val gapNs = if (lastGyroNs == 0L) 0L else event.timestamp - lastGyroNs
-                lastGyroNs = event.timestamp
+                val hole = gapMonitor.onSample(event.timestamp, paused)
                 tracker.push(event.timestamp, gravity, event.values)
                 samples++
-                if (!paused && gapNs > SENSOR_GAP_NS && transport?.ready == true) {
-                    tracker.center()
-                    send(Packets.center(0, nanosToUs(event.timestamp)), reliable = true)
-                    _state.update { it.copy(status = "Tracks while awake — press Center if the cursor is off") }
-                }
+                if (hole) rebase(nanosToUs(event.timestamp))
                 if (!paused && transport?.ready == true) {
                     send(
                         Packets.aim(0, nanosToUs(event.timestamp), tracker.leftCdeg(), tracker.upCdeg()),
@@ -321,7 +333,8 @@ object PointerRuntime : SensorEventListener, LinkListener {
         Log.i(
             TAG,
             "samples=$samples accepted=${counts.accepted} completed=${counts.completed} " +
-                "rejected=${counts.rejected} coalesced=${counts.coalesced} notReady=$dropped windowMs=$windowMs",
+                "rejected=${counts.rejected} coalesced=${counts.coalesced} notReady=$dropped " +
+                "gyroGapsOver50ms=${gapMonitor.takeSmallGaps()} windowMs=$windowMs",
         )
         samples = 0
         dropped = 0

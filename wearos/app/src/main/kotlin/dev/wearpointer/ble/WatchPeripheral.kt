@@ -21,7 +21,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Handler
-import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
 import dev.wearpointer.proto.Packets
@@ -32,23 +31,30 @@ import java.util.concurrent.ConcurrentHashMap
  * [notifyCharacteristicChanged]'s confirm flag stays false so the stack sends
  * a notification, which is what the CCCD bit-0 subscription enables.
  * [OutboundQueue] waits for [onNotificationSent] before the next packet.
- * Aim coalesces; clicks and drags do not.
  *
- * Advertising stops while a central is connected. It is started again on
- * disconnect, and the GATT server is torn down and rebuilt when the adapter
- * goes off and back on. A status string is not evidence that advertising started.
+ * Threading: queue state, the in-flight bookkeeping, retries, and the
+ * timeout all run on [handler] (the runtime thread that also builds packets).
+ * Binder callbacks only answer the GATT request and post to [handler], so a
+ * completion cannot race the `notifyCharacteristicChanged` call it belongs to.
+ *
+ * Advertising is restarted on disconnect, and the GATT server is torn down
+ * and rebuilt when the adapter goes off and back on. A status string is not
+ * evidence that advertising started.
  */
 class WatchPeripheral(
     private val context: Context,
+    private val handler: Handler,
     private val listener: LinkListener,
 ) : PointerTransport {
     private val subscribed = ConcurrentHashMap.newKeySet<BluetoothDevice>()
     private val queue = OutboundQueue()
-    private val lock = Any()
-    private var callbacksLeft = 0
+
+    /** Devices that accepted the packet in flight and owe a callback. */
+    private val awaiting = HashSet<BluetoothDevice>()
     private var flightOk = true
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private var retryPacket: ByteArray? = null
     private val notifyTimeout = Runnable { onNotifyTimeout() }
+    private val retryRunnable = Runnable { retryNow() }
     private var server: BluetoothGattServer? = null
     private var advertiser: BluetoothLeAdvertiser? = null
     private var pointerChar: BluetoothGattCharacteristic? = null
@@ -62,16 +68,19 @@ class WatchPeripheral(
     private val radioReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context, intent: Intent) {
             if (intent.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
-            when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
-                BluetoothAdapter.STATE_OFF, BluetoothAdapter.STATE_TURNING_OFF -> {
-                    radioOn = false
-                    tearDownRadio()
-                    listener.onConnectionChanged(false)
-                    listener.onStatus("Bluetooth is off")
-                }
-                BluetoothAdapter.STATE_ON -> {
-                    radioOn = true
-                    if (running) openServer()
+            val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+            onHandler {
+                when (state) {
+                    BluetoothAdapter.STATE_OFF, BluetoothAdapter.STATE_TURNING_OFF -> {
+                        radioOn = false
+                        tearDownRadio()
+                        listener.onConnectionChanged(false)
+                        listener.onStatus("Bluetooth is off")
+                    }
+                    BluetoothAdapter.STATE_ON -> {
+                        radioOn = true
+                        if (running) openServer()
+                    }
                 }
             }
         }
@@ -98,36 +107,27 @@ class WatchPeripheral(
     private val gattCallback = object : BluetoothGattServerCallback() {
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             Log.i(TAG, "connection ${device.address} state=$newState status=$status")
-            if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+            if (newState != BluetoothProfile.STATE_DISCONNECTED) return
+            onHandler {
                 subscribed.remove(device)
-                synchronized(lock) { queue.clear() }
+                forgetDevice(device)
                 listener.onConnectionChanged(ready)
-                if (running && radioOn && subscribed.isEmpty()) {
+                if (running && radioOn && subscribed.isEmpty()) restartAdvertising()
+            }
+        }
+
+        override fun onServiceAdded(status: Int, service: BluetoothGattService) {
+            onHandler {
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    listener.onStatus("GATT service failed ($status)")
+                } else {
                     restartAdvertising()
                 }
             }
         }
 
-        override fun onServiceAdded(status: Int, service: BluetoothGattService) {
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                listener.onStatus("GATT service failed ($status)")
-                return
-            }
-            restartAdvertising()
-        }
-
         override fun onNotificationSent(device: BluetoothDevice, status: Int) {
-            val step = synchronized(lock) {
-                callbacksLeft = (callbacksLeft - 1).coerceAtLeast(0)
-                flightOk = flightOk && status == BluetoothGatt.GATT_SUCCESS
-                if (callbacksLeft > 0) {
-                    OutboundQueue.Transmit.Idle
-                } else {
-                    mainHandler.removeCallbacks(notifyTimeout)
-                    queue.onFinished(flightOk)
-                }
-            }
-            dispatch(step)
+            onHandler { onSent(device, status) }
         }
 
         override fun onCharacteristicReadRequest(
@@ -167,17 +167,22 @@ class WatchPeripheral(
             offset: Int,
             value: ByteArray?,
         ) {
-            if (descriptor.uuid == Packets.CCCD_UUID) {
-                // Bit 0 is notifications. Bit 1 would be indications, which this
-                // characteristic does not send.
-                val enable = value != null && value.isNotEmpty() && (value[0].toInt() and 0x01) != 0
+            if (responseNeeded) {
+                server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
+            }
+            if (descriptor.uuid != Packets.CCCD_UUID) return
+            // Bit 0 is notifications. Bit 1 would be indications, which this
+            // characteristic does not send.
+            val enable = value != null && value.isNotEmpty() && (value[0].toInt() and 0x01) != 0
+            onHandler {
+                val wasReady = ready
                 if (enable) subscribed.add(device) else subscribed.remove(device)
+                // A new subscription is a new link for the receiver: sequence starts at 0.
+                if (!wasReady && ready) resetFlight()
+                if (!enable) forgetDevice(device)
                 Log.i(TAG, "notify ${if (enable) "on" else "off"} for ${device.address}")
                 listener.onConnectionChanged(ready)
                 if (ready) listener.onStatus("Connected")
-            }
-            if (responseNeeded) {
-                server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
             }
         }
     }
@@ -272,21 +277,30 @@ class WatchPeripheral(
         advertiser.startAdvertising(settings, data, scanResponse, advertiseCallback)
     }
 
-    @SuppressLint("MissingPermission")
+    /** Called on [handler] by the runtime. */
     override fun send(packet: ByteArray, reliable: Boolean): Boolean {
         if (!ready) return false
-        val step = synchronized(lock) { queue.enqueue(packet) }
-        dispatch(step)
+        dispatch(queue.enqueue(packet))
         return true
     }
 
-    @SuppressLint("MissingPermission")
     private fun dispatch(step: OutboundQueue.Transmit) {
         when (step) {
             is OutboundQueue.Transmit.Send -> transmit(step.packet)
+            is OutboundQueue.Transmit.Retry -> {
+                retryPacket = step.packet
+                handler.removeCallbacks(retryRunnable)
+                handler.postDelayed(retryRunnable, step.delayMs)
+            }
             OutboundQueue.Transmit.DropLink -> dropLink("notify failed")
             OutboundQueue.Transmit.Idle -> Unit
         }
+    }
+
+    private fun retryNow() {
+        val packet = retryPacket ?: return
+        retryPacket = null
+        transmit(packet)
     }
 
     @SuppressLint("MissingPermission")
@@ -295,48 +309,84 @@ class WatchPeripheral(
         val characteristic = pointerChar
         val devices = subscribed.toList()
         if (server == null || characteristic == null || devices.isEmpty()) {
-            val step = synchronized(lock) { queue.onApiRejected() }
-            dispatch(step)
+            dispatch(queue.onApiRejected(retryable = false))
             return
         }
-        var accepted = 0
+        awaiting.clear()
+        flightOk = true
+        var allBusy = true
         for (device in devices) {
             // confirm = false: notification, matching PROPERTY_NOTIFY and CCCD bit 0.
             val status = server.notifyCharacteristicChanged(device, characteristic, false, packet)
-            if (status == BluetoothStatusCodes.SUCCESS) accepted++
-            else Log.w(TAG, "notify status $status")
-        }
-        val step = synchronized(lock) {
-            callbacksLeft = accepted
-            flightOk = accepted > 0
-            if (accepted == 0) {
-                mainHandler.removeCallbacks(notifyTimeout)
-                queue.onApiRejected()
+            if (status == BluetoothStatusCodes.SUCCESS) {
+                awaiting.add(device)
             } else {
-                queue.markAccepted()
-                mainHandler.removeCallbacks(notifyTimeout)
-                mainHandler.postDelayed(notifyTimeout, NOTIFY_TIMEOUT_MS)
-                OutboundQueue.Transmit.Idle
+                Log.w(TAG, "notify status $status for ${device.address}")
+                if (!GattStatus.isRetryable(status)) allBusy = false
             }
         }
-        dispatch(step)
+        if (awaiting.isEmpty()) {
+            handler.removeCallbacks(notifyTimeout)
+            dispatch(queue.onApiRejected(retryable = allBusy))
+            return
+        }
+        // With several centrals, one that refused this packet sees a sequence
+        // gap. Stage 1 expects a single receiver.
+        queue.markAccepted()
+        handler.removeCallbacks(notifyTimeout)
+        handler.postDelayed(notifyTimeout, NOTIFY_TIMEOUT_MS)
     }
 
-    @SuppressLint("MissingPermission")
+    private fun onSent(device: BluetoothDevice, status: Int) {
+        // A callback for a packet abandoned with a dropped link, or from a
+        // device that did not accept this packet, is ignored.
+        if (!awaiting.remove(device)) return
+        flightOk = flightOk && status == BluetoothGatt.GATT_SUCCESS
+        if (awaiting.isNotEmpty()) return
+        handler.removeCallbacks(notifyTimeout)
+        dispatch(queue.onFinished(flightOk))
+    }
+
     private fun onNotifyTimeout() {
-        val step = synchronized(lock) { queue.onTimeout() }
-        if (step is OutboundQueue.Transmit.DropLink) {
+        if (awaiting.isEmpty()) return
+        awaiting.clear()
+        if (queue.onTimeout() is OutboundQueue.Transmit.DropLink) {
             dropLink("notify callback timed out")
         }
+    }
+
+    /**
+     * [device] left (disconnect or unsubscribe). With nobody left, the link is
+     * gone and the queue restarts. Otherwise its owed callback will not come:
+     * delivery to it is unknown, so the flight finishes as a failure.
+     */
+    private fun forgetDevice(device: BluetoothDevice) {
+        if (subscribed.isEmpty()) {
+            resetFlight()
+            return
+        }
+        if (!awaiting.remove(device)) return
+        flightOk = false
+        if (awaiting.isNotEmpty()) return
+        handler.removeCallbacks(notifyTimeout)
+        dispatch(queue.onFinished(flightOk))
+    }
+
+    /** Forget the packet in flight, any pending retry, and the queue. */
+    private fun resetFlight() {
+        handler.removeCallbacks(notifyTimeout)
+        handler.removeCallbacks(retryRunnable)
+        retryPacket = null
+        awaiting.clear()
+        queue.clear()
     }
 
     @SuppressLint("MissingPermission")
     private fun dropLink(reason: String) {
         Log.w(TAG, reason)
-        mainHandler.removeCallbacks(notifyTimeout)
         val devices = subscribed.toList()
         subscribed.clear()
-        synchronized(lock) { queue.clear() }
+        resetFlight()
         for (device in devices) {
             try {
                 server?.cancelConnection(device)
@@ -350,21 +400,23 @@ class WatchPeripheral(
     }
 
     override fun takeCounters(): SendCounters {
-        val raw = synchronized(lock) { queue.takeCounters() }
+        val raw = queue.takeCounters()
         return SendCounters(raw.accepted, raw.completed, raw.rejected, raw.coalesced)
     }
 
     @SuppressLint("MissingPermission")
     override fun stop() {
-        running = false
-        radioOn = false
-        unregisterRadioReceiver()
-        tearDownRadio()
+        onHandler {
+            running = false
+            radioOn = false
+            unregisterRadioReceiver()
+            tearDownRadio()
+        }
     }
 
     @SuppressLint("MissingPermission")
     private fun tearDownRadio() {
-        synchronized(lock) { queue.clear() }
+        resetFlight()
         subscribed.clear()
         try {
             advertiser?.stopAdvertising(advertiseCallback)
@@ -379,6 +431,10 @@ class WatchPeripheral(
         server?.close()
         server = null
         pointerChar = null
+    }
+
+    private fun onHandler(block: () -> Unit) {
+        if (handler.looper.isCurrentThread) block() else handler.post(block)
     }
 
     private fun registerRadioReceiver() {

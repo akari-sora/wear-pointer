@@ -30,9 +30,9 @@ This tree has **not** been run on a Watch7 or in a Hyprland session. See [Curren
 
 `--debug` latency is relative to the fastest packet, stamped when the notification is read. It is not a pure radio delay. `aim_hz` uses the watch stats window; `rx` counts every packet kind. Numbers in [docs/acceptance-metrics.md](docs/acceptance-metrics.md) are targets, not measurements.
 
-CI jobs require both tags `r9700x` and `docker` (runner 57287642). `r9700x-docker` is that runner's description, not a tag. Shared runners do not have this pair. The `yes | sdkmanager` pipe is not used; it exits 141 under `pipefail` even when sdkmanager succeeds. No pipeline from this checkout has been observed.
+CI jobs require both tags `r9700x` and `docker` (runner 57287642). `r9700x-docker` is that runner's description, not a tag. Shared runners do not have this pair. The `yes | sdkmanager` pipe is not used; it exits 141 under `pipefail` even when sdkmanager succeeds. CI covers unit tests and builds only, not Watch7 or Hyprland behaviour.
 
-Stop on the watch is the Stop button. Pause tracks while awake (wake lock off, sensors still registered). A long gyro gap on resume recenters. If Stop did not run: `adb shell am force-stop dev.wearpointer` (`-s <serial>` when several devices are attached).
+Stop on the watch is the Stop button. Pause tracks while awake (wake lock off, sensors still registered). A gyro timestamp hole over 500 ms, while paused or active, recenters. If Stop did not run: `adb shell am force-stop dev.wearpointer` (`-s <serial>` when several devices are attached).
 
 ## Build the receiver
 

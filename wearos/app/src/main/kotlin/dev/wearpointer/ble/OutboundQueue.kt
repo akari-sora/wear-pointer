@@ -4,23 +4,41 @@ import dev.wearpointer.proto.Packets
 import java.util.ArrayDeque
 
 /**
- * One in-flight GATT notification at a time, in FIFO order.
+ * One in-flight GATT operation at a time, in FIFO order. Not thread-safe:
+ * the owning transport calls it from a single handler thread.
  *
  * Sequence numbers are written when a packet is first handed to the stack,
- * not when the sensor loop builds it. A coalesced aim never receives a
- * sequence. A newer aim replaces only a queued aim that is still the tail,
- * so a click already behind that aim is not jumped. Center and Pause drop
- * every aim still waiting, because those poses belong to the old base.
+ * not when the sensor loop builds it, so the receiver sees them in send
+ * order. A coalesced aim never receives a sequence. A newer aim replaces only
+ * a queued aim that is still the tail, so a click already behind that aim is
+ * not jumped.
  *
- * [Transmit.Send] on an API rejection is the same bytes again (the stack did
- * not accept them), up to [MAX_API_ATTEMPTS]. A callback failure means
- * delivery is unknown, so the packet is not resent. The caller must drop the
- * link; the desktop then releases buttons. A lost drag-up while later aims
- * are still flowing does not trip the receiver's 300 ms silence release.
+ * Center and Pause are calibration / state boundaries. The aim at the tail
+ * (built against the old base and not yet sent) is dropped. An aim that is
+ * already ahead of a click stays: it goes out before the boundary, so the
+ * receiver still reads it against the old base.
+ *
+ * API rejection ([onApiRejected]): the stack did not take the bytes.
+ * - retryable (busy): the same bytes, same sequence, are sent again after
+ *   [retryDelayMs], up to [MAX_API_ATTEMPTS] attempts in total;
+ * - permanent, or the attempt budget is spent: [Transmit.DropLink].
+ *
+ * Callback failure ([onFinished] with `false`) or [onTimeout]: delivery is
+ * unknown, so nothing is resent (a click could be applied twice).
+ * - aim: counted, the queue moves on. A later aim supersedes it.
+ * - anything else: [Transmit.DropLink]. The desktop releases buttons on
+ *   disconnect. A lost drag-up while later aims keep arriving would not trip
+ *   the receiver's 300 ms no-aim release, so the link drop is what frees it.
+ *
+ * After [Transmit.DropLink] the waiting packets are discarded with the link.
  */
 class OutboundQueue {
     sealed class Transmit {
+        /** Hand these bytes to the stack now. */
         data class Send(val packet: ByteArray) : Transmit()
+
+        /** Hand the same bytes to the stack again after [delayMs]. */
+        data class Retry(val packet: ByteArray, val delayMs: Long) : Transmit()
         data object Idle : Transmit()
         data object DropLink : Transmit()
     }
@@ -45,7 +63,7 @@ class OutboundQueue {
         when (kind(packet)) {
             Packets.KIND_AIM -> enqueueAim(packet)
             Packets.KIND_CENTER, Packets.KIND_PAUSE -> {
-                dropQueuedAims()
+                dropTrailingAim()
                 waiting.addLast(packet)
             }
             else -> waiting.addLast(packet)
@@ -53,51 +71,54 @@ class OutboundQueue {
         return poll()
     }
 
-    /** The stack accepted the notify call. Completion is [onFinished]. */
+    /** The stack accepted the bytes. Completion is [onFinished]. */
     fun markAccepted() {
         accepted++
     }
 
     /**
-     * `notifyCharacteristicChanged` returned an error. The packet was not
-     * accepted, so the same bytes are retried until [MAX_API_ATTEMPTS].
+     * The stack refused the bytes synchronously.
+     * @param retryable the refusal is transient (busy); the same bytes may be
+     * handed over again. Otherwise the link is dropped at once.
      */
-    fun onApiRejected(): Transmit {
+    fun onApiRejected(retryable: Boolean): Transmit {
         val packet = inFlight ?: return Transmit.Idle
         rejected++
-        if (attempts < MAX_API_ATTEMPTS) {
+        if (retryable && attempts < MAX_API_ATTEMPTS) {
+            val delay = retryDelayMs(attempts)
             attempts++
-            return Transmit.Send(packet)
+            return Transmit.Retry(packet, delay)
         }
-        abandonInFlight()
+        abandon()
         return Transmit.DropLink
     }
 
-    /**
-     * `onNotificationSent`. A failure does not resend: the central may already
-     * have applied a click.
-     */
+    /** The completion callback for the packet in flight. */
     fun onFinished(success: Boolean): Transmit {
-        if (inFlight == null) return Transmit.Idle
-        if (!success) {
+        val packet = inFlight ?: return Transmit.Idle
+        if (success) {
+            completed++
+        } else {
             rejected++
-            abandonInFlight()
-            return Transmit.DropLink
+            if (kind(packet) != Packets.KIND_AIM) {
+                abandon()
+                return Transmit.DropLink
+            }
         }
-        completed++
         inFlight = null
         attempts = 0
         return poll()
     }
 
-    /** No callback arrived. Delivery is unknown, same as a failed callback. */
+    /** No completion callback arrived. The stack is stuck; delivery unknown. */
     fun onTimeout(): Transmit {
         if (inFlight == null) return Transmit.Idle
         rejected++
-        abandonInFlight()
+        abandon()
         return Transmit.DropLink
     }
 
+    /** New link or no link: forget everything, sequence restarts at 0. */
     fun clear() {
         waiting.clear()
         inFlight = null
@@ -118,22 +139,19 @@ class OutboundQueue {
 
     fun hasPendingAim(): Boolean = waiting.any { kind(it) == Packets.KIND_AIM }
 
+    fun isBusy(): Boolean = inFlight != null
+
     private fun enqueueAim(packet: ByteArray) {
-        val tail = waiting.lastOrNull()
-        if (tail != null && kind(tail) == Packets.KIND_AIM) {
-            waiting.removeLast()
-            coalesced++
-        }
+        dropTrailingAim()
         waiting.addLast(packet)
     }
 
-    private fun dropQueuedAims() {
-        val kept = ArrayDeque<ByteArray>()
-        for (packet in waiting) {
-            if (kind(packet) == Packets.KIND_AIM) coalesced++ else kept.addLast(packet)
+    private fun dropTrailingAim() {
+        val tail = waiting.peekLast() ?: return
+        if (kind(tail) == Packets.KIND_AIM) {
+            waiting.removeLast()
+            coalesced++
         }
-        waiting.clear()
-        waiting.addAll(kept)
     }
 
     private fun poll(): Transmit {
@@ -146,7 +164,8 @@ class OutboundQueue {
         return Transmit.Send(next)
     }
 
-    private fun abandonInFlight() {
+    /** Link is going down. Nothing stays in flight, nothing waits. */
+    private fun abandon() {
         inFlight = null
         attempts = 0
         waiting.clear()
@@ -156,6 +175,10 @@ class OutboundQueue {
         if (packet.size < 2) -1 else packet[1].toInt() and 0xFF
 
     companion object {
-        const val MAX_API_ATTEMPTS = 3
+        /** Total hand-overs of one packet, first try included. */
+        const val MAX_API_ATTEMPTS = 5
+
+        /** 5, 10, 20, 40 ms: about 75 ms of busy before the link is dropped. */
+        fun retryDelayMs(attemptsSoFar: Int): Long = 5L shl (attemptsSoFar - 1).coerceIn(0, 4)
     }
 }

@@ -18,15 +18,16 @@ import android.os.Handler
 import android.os.ParcelUuid
 import android.util.Log
 import dev.wearpointer.proto.Packets
-import java.util.ArrayDeque
 
 /**
  * Watch as GATT central. Used when the watch cannot advertise. The desktop
  * must be the peripheral (WatchPointer's direction). That desktop role is
  * still a stub; this side is ready for it.
  *
- * Writes are serialized. A newer aim sample replaces one that has not been
- * written yet. Clicks stay queued.
+ * Writes go through the same [OutboundQueue] as the peripheral: one write in
+ * flight, FIFO, sequence stamped at hand-off, Center/Pause drop the waiting
+ * aim, busy is retried, other failures drop the link. Everything runs on
+ * [handler]; GATT callbacks post to it.
  */
 class WatchCentral(
     private val context: Context,
@@ -37,10 +38,10 @@ class WatchCentral(
     private var pointerChar: BluetoothGattCharacteristic? = null
     private var scanning = false
     private var running = false
-    private var writing = false
-    private val reliableQueue = ArrayDeque<ByteArray>()
-    private var pendingUnreliable: ByteArray? = null
-    private var wireSequence = 0
+    private val queue = OutboundQueue()
+    private var retryPacket: ByteArray? = null
+    private val writeTimeout = Runnable { onWriteTimeout() }
+    private val retryRunnable = Runnable { retryNow() }
     private var connected = false
 
     override val ready: Boolean
@@ -101,10 +102,10 @@ class WatchCentral(
                         gatt.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
                     }
                 }
+                queue.clear()
                 connected = true
                 listener.onConnectionChanged(true)
                 listener.onStatus("Connected")
-                pump()
             }
         }
 
@@ -113,12 +114,14 @@ class WatchCentral(
             characteristic: BluetoothGattCharacteristic,
             status: Int,
         ) {
+            if (characteristic.uuid != Packets.POINTER_UUID) return
             handler.post {
-                writing = false
+                if (!queue.isBusy()) return@post
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     Log.w(TAG, "write status $status")
                 }
-                pump()
+                handler.removeCallbacks(writeTimeout)
+                dispatch(queue.onFinished(status == BluetoothGatt.GATT_SUCCESS))
             }
         }
     }
@@ -168,66 +171,103 @@ class WatchCentral(
         gatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
     }
 
+    /** Called on [handler] by the runtime. */
     override fun send(packet: ByteArray, reliable: Boolean): Boolean {
         if (!ready) return false
-        // Fallback path only (desktop advertises). Sequence is stamped in writeNow.
-        // It does not share OutboundQueue's FIFO / Center rules; Stage 1 does not use this.
-        if (writing) {
-            if (reliable) reliableQueue.add(packet) else pendingUnreliable = packet
-            return true
+        dispatch(queue.enqueue(packet))
+        return true
+    }
+
+    private fun dispatch(step: OutboundQueue.Transmit) {
+        when (step) {
+            is OutboundQueue.Transmit.Send -> writeNow(step.packet)
+            is OutboundQueue.Transmit.Retry -> {
+                retryPacket = step.packet
+                handler.removeCallbacks(retryRunnable)
+                handler.postDelayed(retryRunnable, step.delayMs)
+            }
+            OutboundQueue.Transmit.DropLink -> dropLink("write failed")
+            OutboundQueue.Transmit.Idle -> Unit
         }
-        return writeNow(packet, reliable)
+    }
+
+    private fun retryNow() {
+        val packet = retryPacket ?: return
+        retryPacket = null
+        writeNow(packet)
     }
 
     @SuppressLint("MissingPermission")
-    private fun writeNow(packet: ByteArray, reliable: Boolean): Boolean {
-        val gatt = gatt ?: return false
-        val characteristic = pointerChar ?: return false
-        val type = if (reliable) {
-            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-        } else {
-            BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-        }
-        Packets.stampSequence(packet, wireSequence)
-        val status = gatt.writeCharacteristic(characteristic, packet, type)
-        if (status == BluetoothStatusCodes.SUCCESS) {
-            wireSequence = (wireSequence + 1) and 0xFFFF
-        }
-        writing = status == BluetoothStatusCodes.SUCCESS
-        return writing
-    }
-
-    private fun pump() {
-        if (writing) return
-        val next = reliableQueue.pollFirst()
-        if (next != null) {
-            writeNow(next, true)
+    private fun writeNow(packet: ByteArray) {
+        val gatt = gatt
+        val characteristic = pointerChar
+        if (gatt == null || characteristic == null) {
+            dispatch(queue.onApiRejected(retryable = false))
             return
         }
-        val aim = pendingUnreliable
-        pendingUnreliable = null
-        if (aim != null) writeNow(aim, false)
+        // Aim may be lost without harm; discrete events ask for a response.
+        val type = if (packet[1].toInt() == Packets.KIND_AIM) {
+            BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+        } else {
+            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+        }
+        val status = gatt.writeCharacteristic(characteristic, packet, type)
+        if (status == BluetoothStatusCodes.SUCCESS) {
+            queue.markAccepted()
+            handler.removeCallbacks(writeTimeout)
+            handler.postDelayed(writeTimeout, WRITE_TIMEOUT_MS)
+        } else {
+            Log.w(TAG, "write rejected $status")
+            dispatch(queue.onApiRejected(retryable = GattStatus.isRetryable(status)))
+        }
+    }
+
+    private fun onWriteTimeout() {
+        if (queue.onTimeout() is OutboundQueue.Transmit.DropLink) dropLink("write callback timed out")
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun dropLink(reason: String) {
+        Log.w(TAG, reason)
+        listener.onLinkFailed(reason)
+        resetFlight()
+        connected = false
+        // onConnectionStateChange(DISCONNECTED) tears down and rescans.
+        gatt?.disconnect()
+    }
+
+    private fun resetFlight() {
+        handler.removeCallbacks(writeTimeout)
+        handler.removeCallbacks(retryRunnable)
+        retryPacket = null
+        queue.clear()
+    }
+
+    override fun takeCounters(): SendCounters {
+        val raw = queue.takeCounters()
+        return SendCounters(raw.accepted, raw.completed, raw.rejected, raw.coalesced)
     }
 
     @SuppressLint("MissingPermission")
     private fun tearDownGatt() {
         connected = false
-        writing = false
         pointerChar = null
-        reliableQueue.clear()
-        pendingUnreliable = null
-        wireSequence = 0
+        resetFlight()
         gatt?.close()
         gatt = null
     }
 
     override fun stop() {
-        running = false
-        stopScan()
-        tearDownGatt()
+        val block = {
+            running = false
+            stopScan()
+            tearDownGatt()
+        }
+        if (handler.looper.isCurrentThread) block() else handler.post(block)
     }
 
     private companion object {
         const val TAG = "wear-pointer"
+        const val WRITE_TIMEOUT_MS = 1_000L
     }
 }

@@ -48,15 +48,17 @@ Clicks carry the finger-down timestamp. The desktop keeps one second of cursor h
 
 `PointerTransport` on the watch and `PointerLink` on the desktop are the swap point. The desktop link emits `Connected` / `Packet` / `Disconnected` with an epoch. A new epoch resets sequence tracking, the clock anchor, filters, and cursor history so a watch sequence restart is not thousands of lost packets. Packet bytes do not change. The desktop peripheral side is still a stub: [fallback-transport.md](fallback-transport.md).
 
-Pointer notifications are notifications, not indications. The watch waits for `onNotificationSent` before the next one. The sequence number is written at that hand-off, in send order. A newer aim replaces only the queued aim at the tail, so a click already behind it is not reordered, and a coalesced aim never consumes a sequence. Center and Pause drop aims still waiting; Stop clears the queue. An API rejection retries the same bytes a few times. A callback failure or timeout does not resend (the central may already have seen a click) and drops the link so the desktop releases buttons. A lost drag-up while later aims keep arriving does not trip the 300 ms no-aim release; the link drop is what releases the button.
+Pointer notifications are notifications, not indications. Both watch roles share `OutboundQueue`: one GATT operation in flight, FIFO, sequence written at the hand-off to the stack. A newer aim replaces only the queued aim at the tail, so a click already behind it is not reordered, and a coalesced aim never consumes a sequence. Center and Pause drop the tail aim (old base, unsent); Stop clears the queue. Busy is retried with the same bytes after 5/10/20/40 ms; any other synchronous error, or busy past that budget, drops the link. A failed or missing callback is never resent: a failed aim is skipped, anything else drops the link so the desktop releases buttons. A lost drag-up while later aims keep arriving does not trip the 300 ms no-aim release; the link drop is what releases the button. The exact rules are in [protocol/SPEC.md](../protocol/SPEC.md).
 
-Pause means the watch tracks while awake: the wake lock is released, the sensor listener stays, and no aim is sent. On resume, a gyro gap longer than 500 ms means samples were dropped while the CPU was down, so the watch recenters and asks you to press Center if the cursor is off.
+The queue, the in-flight bookkeeping, retries, and the callback timeout all run on the runtime handler thread. GATT binder callbacks post there, so a completion cannot race the notify call it completes.
+
+Pause means the watch tracks while awake: the wake lock is released, the sensor listener stays, and no aim is sent. `SensorGapMonitor` looks at gyro event timestamps. A hole over 500 ms while paused is remembered and causes Resume then Center on resume; a hole while active sends Center at once. A FIFO delivered late but complete is not a hole. Holes between 50 ms (the integrator's step clamp) and 500 ms lose a little heading without a recenter; logcat counts them as `gyroGapsOver50ms`.
 
 ## What is unit-tested
 
 The Rust crate `wear-pointer-core` tests the integrator, the 1€ filter, projection, packet codec (including the vector in `protocol/SPEC.md`), sequence loss, relative latency, dead zone, click rewind, and the 240 Hz follower.
 
-The Wear OS module has JVM unit tests for the same aim vector and the same aim packet bytes. Those tests do not talk to a radio or a sensor.
+The Wear OS module has JVM unit tests for the same aim vector and the same aim packet bytes, for `OutboundQueue` (ordering, sequence, retries, Center boundary, plus a seeded random simulation that checks sequence continuity, the Center boundary, and in-order discrete events across 300 runs), and for `SensorGapMonitor`. Those tests do not talk to a radio or a sensor.
 
 ## What is not tested on hardware
 

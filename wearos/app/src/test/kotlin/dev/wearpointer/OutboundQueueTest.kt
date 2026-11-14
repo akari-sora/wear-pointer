@@ -1,5 +1,7 @@
 package dev.wearpointer
 
+import android.bluetooth.BluetoothStatusCodes
+import dev.wearpointer.ble.GattStatus
 import dev.wearpointer.ble.OutboundQueue
 import dev.wearpointer.proto.Packets
 import org.junit.Assert.assertEquals
@@ -82,27 +84,94 @@ class OutboundQueueTest {
         assertTrue(queue.takeCounters().coalesced >= 1)
     }
 
+    /** Review fed1967 case 2: the rejected drag-up itself must go out again, before the next aim. */
     @Test
-    fun apiRejectRetriesTheSameDragUpInsteadOfTheNextAim() {
+    fun busyRejectRetriesTheSameDragUpInsteadOfTheNextAim() {
         val queue = OutboundQueue()
         val drag = send(queue.enqueue(Packets.drag(7, 1_000, down = false)))
+        val dragBytes = drag.copyOf()
         assertTrue(queue.enqueue(Packets.aim(8, 2_000, 4, 0)) is OutboundQueue.Transmit.Idle)
-        val retried = send(queue.onApiRejected())
+        val retry = queue.onApiRejected(retryable = true)
+        assertTrue(retry is OutboundQueue.Transmit.Retry)
+        val retried = (retry as OutboundQueue.Transmit.Retry).packet
+        assertTrue(retry.delayMs > 0)
         assertEquals(Packets.KIND_DRAG, kind(retried))
-        assertTrue(retried.contentEquals(drag))
-        assertEquals(sequenceOf(drag), sequenceOf(retried))
+        assertTrue(retried.contentEquals(dragBytes))
+        // Still in flight: the aim may not overtake it.
+        assertTrue(queue.isBusy())
+        assertTrue(queue.enqueue(Packets.aim(9, 3_000, 5, 0)) is OutboundQueue.Transmit.Idle)
+        queue.markAccepted()
+        val next = send(queue.onFinished(success = true))
+        assertEquals(Packets.KIND_AIM, kind(next))
+        assertEquals(sequenceOf(dragBytes) + 1, sequenceOf(next))
+        assertEquals(5, leftCdeg(next))
     }
 
     @Test
-    fun apiRejectDropsTheLinkAfterTheAttemptBudget() {
+    fun busyRetriesBackOffAndDropTheLinkAfterTheBudget() {
         val queue = OutboundQueue()
         send(queue.enqueue(Packets.drag(1, 1, down = false)))
         queue.enqueue(Packets.aim(2, 2, 1, 0))
-        assertTrue(queue.onApiRejected() is OutboundQueue.Transmit.Send)
-        assertTrue(queue.onApiRejected() is OutboundQueue.Transmit.Send)
-        assertTrue(queue.onApiRejected() is OutboundQueue.Transmit.DropLink)
+        val delays = ArrayList<Long>()
+        repeat(OutboundQueue.MAX_API_ATTEMPTS - 1) {
+            val step = queue.onApiRejected(retryable = true)
+            assertTrue(step is OutboundQueue.Transmit.Retry)
+            delays += (step as OutboundQueue.Transmit.Retry).delayMs
+        }
+        assertEquals(listOf(5L, 10L, 20L, 40L), delays)
+        assertTrue(queue.onApiRejected(retryable = true) is OutboundQueue.Transmit.DropLink)
         assertTrue(queue.onFinished(success = true) is OutboundQueue.Transmit.Idle)
         assertFalse(queue.hasPendingAim())
+        assertEquals(0, queue.queuedCritical())
+    }
+
+    @Test
+    fun permanentRejectDropsTheLinkWithoutRetrying() {
+        val queue = OutboundQueue()
+        send(queue.enqueue(Packets.leftClick(1, 1)))
+        queue.enqueue(Packets.rightClick(2, 2))
+        assertTrue(queue.onApiRejected(retryable = false) is OutboundQueue.Transmit.DropLink)
+        assertFalse(queue.isBusy())
+        assertEquals(0, queue.queuedCritical())
+    }
+
+    @Test
+    fun onlyBusyIsRetryable() {
+        assertTrue(GattStatus.isRetryable(BluetoothStatusCodes.ERROR_GATT_WRITE_REQUEST_BUSY))
+        assertFalse(GattStatus.isRetryable(BluetoothStatusCodes.ERROR_BLUETOOTH_NOT_ENABLED))
+        assertFalse(GattStatus.isRetryable(BluetoothStatusCodes.ERROR_GATT_WRITE_NOT_ALLOWED))
+        assertFalse(GattStatus.isRetryable(BluetoothStatusCodes.ERROR_MISSING_BLUETOOTH_CONNECT_PERMISSION))
+        assertFalse(GattStatus.isRetryable(BluetoothStatusCodes.ERROR_PROFILE_SERVICE_NOT_BOUND))
+        assertFalse(GattStatus.isRetryable(BluetoothStatusCodes.ERROR_UNKNOWN))
+    }
+
+    @Test
+    fun aimCallbackFailureMovesOnWithoutResending() {
+        val queue = OutboundQueue()
+        val aim = send(queue.enqueue(Packets.aim(1, 1, 1, 0)))
+        queue.enqueue(Packets.leftClick(2, 2))
+        val next = send(queue.onFinished(success = false))
+        assertEquals(Packets.KIND_LEFT_CLICK, kind(next))
+        assertEquals(sequenceOf(aim) + 1, sequenceOf(next))
+        assertEquals(1, queue.takeCounters().rejected)
+    }
+
+    @Test
+    fun dragUpCallbackFailureDropsTheLinkInsteadOfResending() {
+        val queue = OutboundQueue()
+        send(queue.enqueue(Packets.drag(1, 1, down = false)))
+        queue.enqueue(Packets.aim(2, 2, 1, 0))
+        assertTrue(queue.onFinished(success = false) is OutboundQueue.Transmit.DropLink)
+        assertTrue(queue.onFinished(success = true) is OutboundQueue.Transmit.Idle)
+    }
+
+    @Test
+    fun timeoutDropsTheLinkEvenForAnAim() {
+        val queue = OutboundQueue()
+        send(queue.enqueue(Packets.aim(1, 1, 1, 0)))
+        queue.enqueue(Packets.leftClick(2, 2))
+        assertTrue(queue.onTimeout() is OutboundQueue.Transmit.DropLink)
+        assertEquals(0, queue.queuedCritical())
     }
 
     @Test
@@ -124,6 +193,37 @@ class OutboundQueueTest {
         assertEquals(Packets.KIND_CENTER, kind(next))
         assertTrue(queue.onFinished(success = true) is OutboundQueue.Transmit.Idle)
         assertFalse(queue.hasPendingAim())
+    }
+
+    @Test
+    fun centerKeepsAnAimAlreadyAheadOfAClickButDropsTheTailAim() {
+        val queue = OutboundQueue()
+        send(queue.enqueue(Packets.aim(1, 1_000, 11, 0)))
+        queue.enqueue(Packets.aim(2, 2_000, 22, 0))
+        queue.enqueue(Packets.leftClick(3, 2_500))
+        queue.enqueue(Packets.aim(4, 2_800, 33, 0))
+        queue.enqueue(Packets.center(5, 3_000))
+        val sent = drain(queue)
+        assertEquals(
+            listOf(Packets.KIND_AIM, Packets.KIND_LEFT_CLICK, Packets.KIND_CENTER),
+            sent.map { kind(it) },
+        )
+        // The aim ahead of the click goes out before Center, still on the old base.
+        assertEquals(22, leftCdeg(sent[0]))
+        assertEquals(listOf(1, 2, 3), sent.map { sequenceOf(it) })
+    }
+
+    @Test
+    fun aimInFlightThatIsRetriedStillLandsBeforeCenter() {
+        val queue = OutboundQueue()
+        val old = send(queue.enqueue(Packets.aim(1, 1_000, 11, 0)))
+        queue.enqueue(Packets.center(2, 2_000))
+        val retry = queue.onApiRejected(retryable = true) as OutboundQueue.Transmit.Retry
+        assertTrue(retry.packet.contentEquals(old))
+        queue.enqueue(Packets.aim(3, 3_000, 0, 0))
+        val sent = drain(queue)
+        assertEquals(listOf(Packets.KIND_CENTER, Packets.KIND_AIM), sent.map { kind(it) })
+        assertEquals(0, leftCdeg(sent[1]))
     }
 
     @Test
@@ -150,6 +250,17 @@ class OutboundQueueTest {
         assertTrue(queue.onFinished(success = true) is OutboundQueue.Transmit.Idle)
         assertFalse(queue.hasPendingAim())
         assertEquals(0, queue.queuedCritical())
+    }
+
+    /** Completes every flight successfully and returns what went out after the current one. */
+    private fun drain(queue: OutboundQueue): List<ByteArray> {
+        val sent = ArrayList<ByteArray>()
+        var step = queue.onFinished(success = true)
+        while (step is OutboundQueue.Transmit.Send) {
+            sent += step.packet
+            step = queue.onFinished(success = true)
+        }
+        return sent
     }
 
     private fun send(step: OutboundQueue.Transmit): ByteArray {

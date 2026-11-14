@@ -27,7 +27,14 @@ The watch advertises the service (low latency, connectable). The 128-bit service
 
 The desktop subscribes to Pointer by writing the Client Characteristic Configuration descriptor (`00002902-0000-1000-8000-00805f9b34fb`) to `0x0001` (notifications). The watch does not set `PROPERTY_INDICATE` and always passes `confirm = false` to `notifyCharacteristicChanged`. A `true` confirm bit would be an indication, which this subscription does not enable.
 
-The watch sends at most one notification per connected central until `onNotificationSent`. A newer aim sample replaces an aim that has not started transmitting. Clicks and drags stay queued and are not replaced by aim traffic. `notifies_ok` in a stats packet is the number of notifications whose callback reported success in the window. `notifies_drop` is API rejections plus callback failures. Aims coalesced while one was in flight are counted in logcat (`coalesced=`), not as radio loss.
+The watch sends at most one notification per connected central until `onNotificationSent`. Packets leave in the order they were queued (FIFO); nothing overtakes a queued packet. A newer aim sample replaces only an aim still at the tail of the queue. Clicks and drags are never replaced by aim traffic.
+
+Delivery rules on the watch:
+
+- `notifyCharacteristicChanged` returns busy (`ERROR_GATT_WRITE_REQUEST_BUSY`): the stack did not take the bytes. The same bytes, same `sequence`, are handed over again after 5, 10, 20, 40 ms (five attempts in total). Then the link is dropped.
+- Any other synchronous error: the link is dropped at once.
+- `onNotificationSent` with a failure status, or no callback within 1 s: delivery is unknown, so nothing is resent (a click could be applied twice). A failed aim is counted and the queue moves on. A failed click, drag, Center, or Pause drops the link, and the desktop releases a held button on disconnect. This matters for drag-up: while aims keep arriving, the 300 ms no-aim release never fires.
+- When the link drops, packets still queued are discarded with it. The next link starts at `sequence` 0. `notifies_ok` in a stats packet is the number of notifications whose callback reported success in the window. `notifies_drop` is API rejections plus callback failures. Aims coalesced while one was in flight are counted in logcat (`coalesced=`), not as radio loss.
 
 ### Role: desktop is peripheral (fallback)
 
@@ -80,13 +87,19 @@ Same as left click, right button.
 
 The watch has zeroed heading and set the elevation reference to the current gravity pitch. The next aim samples are relative to that pose. The desktop recenters filters and the cursor target.
 
+Center is a calibration boundary on the wire: no aim built before it is sent after it, and no aim built after it is sent before it. When Center is queued, the aim waiting at the tail (old base, not yet sent) is dropped. An aim already ahead of a queued click stays and goes out before Center, so the desktop still reads it against the old base. The watch also sends Center by itself when the gyro timestamps show a hole longer than 500 ms (see Pause).
+
 ### 5 Pause (9 bytes)
 
 | Offset | Type | Field |
 | --- | --- | --- |
 | 8 | u8 | `1` paused, `0` resumed. |
 
-While paused the watch does not send aim. The desktop stops moving the cursor and releases a held drag. Aim integration continues, so resume lines up.
+While paused the watch does not send aim. The desktop stops moving the cursor and releases a held drag. Queuing Pause drops the aim waiting at the tail, as Center does.
+
+Pause keeps the sensor listener and releases the wake lock, so the heading integrates **while the watch is awake**. Non-wakeup sensors can lose events while the CPU is suspended (hardware FIFO full, or no FIFO). The watch checks gyro event timestamps: a hole longer than 500 ms seen while paused makes the watch send Resume then Center on resume; a hole seen while active sends Center at once. A late but complete FIFO has no hole and does not recenter. Whether a Watch7 opens such holes is a Stage 0 measurement.
+
+Stop on the watch unregisters sensors and closes the link. Queued packets are discarded; the disconnect releases a held button on the desktop.
 
 ### 6 Info (9 to 20 bytes)
 

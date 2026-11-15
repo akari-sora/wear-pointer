@@ -6,6 +6,8 @@
 
 > Canonical repository and issues: https://gitlab.com/aa22396584/wear-pointer  
 > Releases and downloads: https://gitlab.com/aa22396584/wear-pointer/-/releases
+> **Get the Wear OS app:** [Google Play (optional paid support)](https://play.google.com/store/apps/details?id=dev.wearpointer.app) · [Free signed APK (GitLab Releases)](https://gitlab.com/aa22396584/wear-pointer/-/releases)  
+> The Play URL uses the release app ID `dev.wearpointer.app`; public listing visibility depends on publication and region. The signed APK and source remain free.
 
 [![wear-pointer synchronized Wear OS + Hyprland 0.57 live demo](docs/assets/demo-preview.gif)](https://gitlab.com/aa22396584/wear-pointer/-/raw/main/docs/assets/demo-16x9-en.mp4)
 
@@ -26,7 +28,7 @@ Physical hardware measurements across all three desktop OSes (`100.4–102.6 pkt
 
 ### Path A — No computer software needed (`BT HID` Bluetooth Mouse)
 
-1. Install **Wear Pointer** on your Wear OS watch (from Google Play or `wear-pointer-v0.3.0-wearos.apk`).
+1. Install **Wear Pointer** on your Wear OS watch via [Google Play (optional paid support)](https://play.google.com/store/apps/details?id=dev.wearpointer.app) if available, or download the [free signed Wear OS APK](https://gitlab.com/aa22396584/wear-pointer/-/releases/v0.3.0) (`wear-pointer-v0.3.0-wearos.apk`).
 2. Open the app on your watch, tap the top status pill (`100HZ · 1600 DPI`), tap **`BT HID`**, then tap **`Pair PC`**.
 3. Open **Bluetooth Settings** on your Mac, Windows PC, Linux desktop, iPad, or TV and pair with your watch.
 4. Move your wrist or slide on the pad — `LASER`, `AIR`, `TOUCH`, left/right click, hold-to-drag, rotary bezel scroll, and live DPI (`400–3200 DPI`) all work immediately.

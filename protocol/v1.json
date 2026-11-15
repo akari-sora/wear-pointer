@@ -28,10 +28,19 @@
     "info": 6,
     "drag": 7,
     "stats": 8,
-    "sensitivity": 9
+    "sensitivity": 9,
+    "mode": 10,
+    "touch": 11
   },
   "control_commands": {
     "request_stats": 1
   },
-  "aim_vector_hex": "01000100e8030000d204ceff"
+  "aim_vector_hex": "01000100e8030000d204ceff",
+  "modes": {
+    "absolute": 0,
+    "air": 1,
+    "touch": 2
+  },
+  "mode_vector_hex": "010a0100e803000001",
+  "touch_vector_hex": "010b0200e8030000fa009cff01"
 }

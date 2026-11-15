@@ -36,4 +36,10 @@ pub trait PointerBackend {
     fn button(&mut self, button: Button, down: bool) -> Result<()>;
     fn scroll(&mut self, delta_px: i32) -> Result<()>;
     fn screen(&self) -> Screen;
+    /// Where the OS cursor is now, in the same coordinates as
+    /// `motion_absolute`, if the platform can say. The relative pointing modes
+    /// use it to continue from wherever a real mouse left the cursor.
+    fn cursor_position(&self) -> Option<(f64, f64)> {
+        None
+    }
 }

@@ -18,6 +18,11 @@ object Packets {
     const val KIND_DRAG: Int = 7
     const val KIND_STATS: Int = 8
     const val KIND_SENSITIVITY: Int = 9
+    const val KIND_MODE: Int = 10
+    const val KIND_TOUCH: Int = 11
+    const val MODE_ABSOLUTE: Int = 0
+    const val MODE_AIR: Int = 1
+    const val MODE_TOUCH: Int = 2
     const val CONTROL_REQUEST_STATS: Int = 0x01
     const val HOLD_TO_DRAG_MS: Long = 350
     const val BASE_DPI: Int = 1000
@@ -118,6 +123,32 @@ object Packets {
         header(out, KIND_SENSITIVITY, sequence, timestampUs)
         putU16(out, 8, dpi.coerceIn(MIN_DPI, MAX_DPI))
         return out
+    }
+
+    /** Pointing model chosen on the watch: [MODE_ABSOLUTE], [MODE_AIR] or [MODE_TOUCH]. */
+    fun mode(sequence: Int, timestampUs: Long, mode: Int): ByteArray {
+        val out = ByteArray(9)
+        header(out, KIND_MODE, sequence, timestampUs)
+        out[8] = mode.coerceIn(0, 255).toByte()
+        return out
+    }
+
+    /**
+     * Touchpad sample. [xAccCentiMm] / [yAccCentiMm] are cumulative finger
+     * travel in 0.01 mm, wrapping at 16 bits, so coalescing loses no motion.
+     */
+    fun touch(sequence: Int, timestampUs: Long, xAccCentiMm: Int, yAccCentiMm: Int, down: Boolean): ByteArray {
+        val out = ByteArray(13)
+        header(out, KIND_TOUCH, sequence, timestampUs)
+        putI16Wrapping(out, 8, xAccCentiMm)
+        putI16Wrapping(out, 10, yAccCentiMm)
+        out[12] = if (down) 1 else 0
+        return out
+    }
+
+    private fun putI16Wrapping(out: ByteArray, offset: Int, value: Int) {
+        out[offset] = (value and 0xFF).toByte()
+        out[offset + 1] = (value shr 8 and 0xFF).toByte()
     }
 
     private fun bare(kind: Int, sequence: Int, timestampUs: Long): ByteArray {

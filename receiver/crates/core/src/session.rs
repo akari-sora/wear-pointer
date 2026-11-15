@@ -8,6 +8,7 @@
 use crate::filter::OneEuroFilter;
 use crate::packet::{decode, Packet, DEFAULT_DPI, MAX_DPI, MIN_DPI};
 use crate::project::{dpi_to_speed, project_aim, reach_degrees, speed_to_dpi, Screen};
+use crate::relative::{gain_scale, AirMouse, ControlMode, TouchPad};
 use crate::stats::{LinkStats, WindowStats};
 use crate::{FRESH_GAP_S, MAX_FILTER_DT_S};
 
@@ -43,6 +44,7 @@ pub struct DebugSnapshot {
     pub remote_aim_hz: Option<f64>,
     pub effective_dpi: u16,
     pub remote_dpi: Option<u16>,
+    pub mode: ControlMode,
     pub cursor_x: Option<f64>,
     pub cursor_y: Option<f64>,
 }
@@ -64,6 +66,8 @@ pub struct SessionConfig {
     pub screen: Screen,
     pub follow_tau_s: f64,
     pub min_move_px: f64,
+    /// `--mode`: forces a pointing model and ignores the watch's choice.
+    pub mode_override: Option<ControlMode>,
 }
 
 impl Default for SessionConfig {
@@ -77,6 +81,7 @@ impl Default for SessionConfig {
             screen: Screen::new(1920.0, 1080.0),
             follow_tau_s: crate::FOLLOW_TAU_S,
             min_move_px: crate::MIN_MOVE_PX,
+            mode_override: None,
         }
     }
 }
@@ -143,6 +148,14 @@ pub struct PointerSession {
     paused: bool,
     dragging: bool,
     remote_dpi: Option<u16>,
+    remote_mode: Option<ControlMode>,
+    air: AirMouse,
+    touch: TouchPad,
+    /// Virtual cursor for the relative modes (absolute mode derives the
+    /// position from the arm pose every sample instead).
+    pos: Option<(f64, f64)>,
+    /// Local time of the last relative step that moved the cursor.
+    last_relative_move_s: Option<f64>,
     /// False after `on_disconnected` until the next `on_connected`. Starts
     /// open so unit tests can feed packets without a fake link.
     link_open: bool,
@@ -168,9 +181,60 @@ impl PointerSession {
             paused: false,
             dragging: false,
             remote_dpi: None,
+            remote_mode: None,
+            air: AirMouse::default(),
+            touch: TouchPad::default(),
+            pos: None,
+            last_relative_move_s: None,
             link_open: true,
             history: Vec::new(),
         }
+    }
+
+    /// Pointing model in use: `--mode` if given, else the watch's choice, else
+    /// absolute (what a watch that predates the Mode packet sends).
+    pub fn effective_mode(&self) -> ControlMode {
+        self.config
+            .mode_override
+            .or(self.remote_mode)
+            .unwrap_or(ControlMode::Absolute)
+    }
+
+    pub fn remote_mode(&self) -> Option<ControlMode> {
+        self.remote_mode
+    }
+
+    /// True when the receiver should report the OS cursor position through
+    /// [`Self::sync_external_cursor`], so the relative modes continue from
+    /// wherever a real mouse or trackpad left the cursor.
+    pub fn wants_external_cursor(&self) -> bool {
+        self.link_open && self.effective_mode().is_relative()
+    }
+
+    /// The OS cursor is at `point`. In a relative mode, while the watch is not
+    /// moving the cursor and nothing is held, adopt that position so the next
+    /// watch motion starts from it instead of yanking the cursor back.
+    pub fn sync_external_cursor(&mut self, point: (f64, f64), local_s: f64) {
+        if !self.effective_mode().is_relative() || self.dragging {
+            return;
+        }
+        if let Some(t) = self.last_relative_move_s {
+            if local_s - t < EXTERNAL_SYNC_IDLE_S {
+                return;
+            }
+        }
+        let point = self.clamp_to_screen(point);
+        if let Some(shown) = self.follower.shown {
+            if (shown.0 - point.0).abs() + (shown.1 - point.1).abs() <= EXTERNAL_SYNC_PX {
+                return;
+            }
+        }
+        self.pos = Some(point);
+        self.target = Some(point);
+        self.follower.snap(point);
+        // A click rewinds through `history`; without this it would jump back
+        // to where the watch last left the cursor.
+        self.remember(local_s, point);
     }
 
     pub fn set_screen(&mut self, screen: Screen) {
@@ -215,6 +279,10 @@ impl PointerSession {
         self.last_aim_local_s = None;
         self.paused = false;
         self.remote_dpi = None;
+        self.remote_mode = None;
+        self.air.reset();
+        self.touch.reset();
+        self.pos = self.follower.shown;
         self.history.clear();
         self.link_open = true;
         release
@@ -252,7 +320,7 @@ impl PointerSession {
             header.sequence,
             header.timestamp_us,
             local_s,
-            matches!(packet, Packet::Aim { .. }),
+            matches!(packet, Packet::Aim { .. } | Packet::Touch { .. }),
         );
         if timing.duplicate {
             return Vec::new();
@@ -260,7 +328,38 @@ impl PointerSession {
         match packet {
             Packet::Aim {
                 left_cdeg, up_cdeg, ..
-            } => self.push_aim(left_cdeg, up_cdeg, local_s, timing.fresh, timing.watch_dt_s),
+            } => match self.effective_mode() {
+                ControlMode::Absolute => {
+                    self.push_aim(left_cdeg, up_cdeg, local_s, timing.fresh, timing.watch_dt_s)
+                }
+                ControlMode::Air => {
+                    self.push_air(left_cdeg, up_cdeg, local_s, timing.fresh, timing.watch_dt_s)
+                }
+                ControlMode::Touch => {
+                    // Still a heartbeat for the silence / drag-release rules.
+                    self.last_aim_local_s = Some(local_s);
+                    Vec::new()
+                }
+            },
+            Packet::Touch { x_acc, y_acc, .. } => {
+                self.last_aim_local_s = Some(local_s);
+                if self.effective_mode() == ControlMode::Touch {
+                    let dt = usable_dt(timing.fresh, timing.watch_dt_s);
+                    let scale = gain_scale(self.config.screen.width, self.effective_dpi());
+                    let delta = self.touch.step(x_acc, y_acc, dt, scale);
+                    self.push_relative(delta, local_s)
+                } else {
+                    Vec::new()
+                }
+            }
+            Packet::Mode { mode, .. } => {
+                let before = self.effective_mode();
+                self.remote_mode = Some(ControlMode::from_wire(mode));
+                if self.effective_mode() != before {
+                    self.switch_mode();
+                }
+                Vec::new()
+            }
             Packet::LeftClick { .. } => self.click(Button::Left, header.timestamp_us, local_s),
             Packet::RightClick { .. } => self.click(Button::Right, header.timestamp_us, local_s),
             Packet::Scroll { delta_px, .. } => vec![CursorAction::Scroll {
@@ -373,11 +472,69 @@ impl PointerSession {
         actions
     }
 
+    /// Air mouse: speed-dependent gain on the change in aim angles.
+    fn push_air(
+        &mut self,
+        left_cdeg: i16,
+        up_cdeg: i16,
+        local_s: f64,
+        fresh: bool,
+        watch_dt_s: Option<f64>,
+    ) -> Vec<CursorAction> {
+        self.last_aim_local_s = Some(local_s);
+        let dt = usable_dt(fresh, watch_dt_s);
+        let scale = gain_scale(self.config.screen.width, self.effective_dpi());
+        let delta = self.air.step(
+            f64::from(left_cdeg) / 100.0,
+            f64::from(up_cdeg) / 100.0,
+            dt,
+            scale,
+        );
+        self.push_relative(delta, local_s)
+    }
+
+    /// Moves the relative-mode virtual cursor; edge pinning re-aligns it.
+    fn push_relative(&mut self, delta: (f64, f64), local_s: f64) -> Vec<CursorAction> {
+        if delta.0 == 0.0 && delta.1 == 0.0 {
+            return Vec::new();
+        }
+        let start = self
+            .pos
+            .or(self.follower.shown)
+            .unwrap_or_else(|| self.center_point());
+        let next = self.clamp_to_screen((start.0 + delta.0, start.1 + delta.1));
+        self.pos = Some(next);
+        self.target = Some(next);
+        self.last_relative_move_s = Some(local_s);
+        Vec::new()
+    }
+
+    /// The pointing model changed: start the new one from where the cursor is.
+    fn switch_mode(&mut self) {
+        self.filter_x.reset();
+        self.filter_y.reset();
+        self.last_aim_deg = None;
+        self.air.reset();
+        self.touch.reset();
+        self.pos = self.follower.shown;
+        self.target = self.follower.shown;
+    }
+
+    fn clamp_to_screen(&self, point: (f64, f64)) -> (f64, f64) {
+        (
+            point.0.clamp(0.0, self.config.screen.width.max(0.0)),
+            point.1.clamp(0.0, self.config.screen.height.max(0.0)),
+        )
+    }
+
     fn center(&mut self) -> Vec<CursorAction> {
         self.filter_x.reset();
         self.filter_y.reset();
         self.last_aim_deg = None;
+        self.air.reset();
+        self.touch.reset();
         let center = self.center_point();
+        self.pos = Some(center);
         self.target = Some(center);
         self.follower.snap(center);
         vec![CursorAction::Move {
@@ -388,6 +545,9 @@ impl PointerSession {
 
     fn set_paused(&mut self, paused: bool) -> Vec<CursorAction> {
         self.paused = paused;
+        // Pause is the relative modes' clutch: resume continues from here.
+        self.air.reset();
+        self.touch.reset();
         if paused {
             self.force_release_drag()
         } else {
@@ -409,6 +569,7 @@ impl PointerSession {
     fn click(&mut self, button: Button, watch_us: u32, local_s: f64) -> Vec<CursorAction> {
         let point = self.press_point(watch_us);
         self.follower.snap(point);
+        self.pin_relative(point);
         self.remember(local_s, point);
         vec![
             CursorAction::Move {
@@ -426,6 +587,7 @@ impl PointerSession {
     fn drag(&mut self, down: bool, watch_us: u32, local_s: f64) -> Vec<CursorAction> {
         let point = self.press_point(watch_us);
         self.follower.snap(point);
+        self.pin_relative(point);
         self.remember(local_s, point);
         if down {
             if self.dragging {
@@ -456,6 +618,15 @@ impl PointerSession {
             ]
         } else {
             Vec::new()
+        }
+    }
+
+    /// In a relative mode the virtual cursor must also move to the rewound
+    /// press point, or the follower would creep toward the jolted position.
+    fn pin_relative(&mut self, point: (f64, f64)) {
+        if self.effective_mode().is_relative() {
+            self.pos = Some(point);
+            self.target = Some(point);
         }
     }
 
@@ -524,8 +695,27 @@ fn snapshot_from(session: &PointerSession, window: &WindowStats, elapsed: f64) -
         remote_aim_hz: remote_aim_hz(session),
         effective_dpi: session.effective_dpi(),
         remote_dpi: session.remote_dpi(),
+        mode: session.effective_mode(),
         cursor_x: session.follower.shown.map(|p| p.0),
         cursor_y: session.follower.shown.map(|p| p.1),
+    }
+}
+
+/// Do not adopt the OS cursor until the watch has been still this long, so
+/// the cursor's own lag behind our injected events is not mistaken for a
+/// real mouse.
+const EXTERNAL_SYNC_IDLE_S: f64 = 0.15;
+/// OS cursor this far (L1 pixels) from where we put it means another device
+/// moved it.
+const EXTERNAL_SYNC_PX: f64 = 4.0;
+
+fn usable_dt(fresh: bool, watch_dt_s: Option<f64>) -> Option<f64> {
+    if fresh {
+        return None;
+    }
+    match watch_dt_s {
+        Some(dt) if dt > 0.0 && dt < MAX_FILTER_DT_S => Some(dt),
+        _ => None,
     }
 }
 
@@ -556,16 +746,17 @@ mod tests {
     use super::*;
     #[cfg(test)]
     use crate::packet::{
-        encode, header, Packet, KIND_AIM, KIND_DRAG, KIND_LEFT_CLICK, KIND_PAUSE, KIND_SCROLL,
-        KIND_SENSITIVITY,
+        encode, header, Packet, KIND_AIM, KIND_CENTER, KIND_DRAG, KIND_LEFT_CLICK, KIND_MODE,
+        KIND_PAUSE, KIND_SCROLL, KIND_SENSITIVITY, KIND_TOUCH, MODE_AIR, MODE_TOUCH,
     };
 
     fn session() -> PointerSession {
-        let mut config = SessionConfig::default();
-        config.screen = Screen::new(2000.0, 1000.0);
-        config.steady_hz = 0.8;
-        config.quickness = 0.0;
-        PointerSession::new(config)
+        PointerSession::new(SessionConfig {
+            screen: Screen::new(2000.0, 1000.0),
+            steady_hz: 0.8,
+            quickness: 0.0,
+            ..SessionConfig::default()
+        })
     }
 
     fn aim(seq: u16, us: u32, left: i16, up: i16) -> Vec<u8> {
@@ -617,9 +808,11 @@ mod tests {
 
     #[test]
     fn dead_zone_holds_a_tiny_aim_change() {
-        let mut config = SessionConfig::default();
-        config.screen = Screen::new(2000.0, 1000.0);
-        config.dead_zone_deg = 1.0;
+        let config = SessionConfig {
+            screen: Screen::new(2000.0, 1000.0),
+            dead_zone_deg: 1.0,
+            ..SessionConfig::default()
+        };
         let mut session = PointerSession::new(config);
         session.push_packet(&aim(1, 0, 0, 0), 0.0);
         let held = session.push_packet(&aim(2, 10_000, 10, 0), 0.01);
@@ -848,9 +1041,11 @@ mod tests {
 
     #[test]
     fn cli_dpi_override_preserves_initial_value_and_scales_with_watch_changes() {
-        let mut cfg = SessionConfig::default();
-        cfg.speed = 2.0;
-        cfg.cli_speed_override = Some(2.0);
+        let cfg = SessionConfig {
+            speed: 2.0,
+            cli_speed_override: Some(2.0),
+            ..SessionConfig::default()
+        };
         let mut s = PointerSession::new(cfg);
         assert_eq!(s.effective_dpi(), 2000);
 
@@ -869,5 +1064,213 @@ mod tests {
         });
         s.push_packet(&boosted, 0.01);
         assert_eq!(s.effective_dpi(), 3000);
+    }
+
+    fn mode(seq: u16, value: u8) -> Vec<u8> {
+        encode(&Packet::Mode {
+            header: header(KIND_MODE, seq, 0),
+            mode: value,
+        })
+    }
+
+    fn touch(seq: u16, us: u32, x: i16, y: i16) -> Vec<u8> {
+        encode(&Packet::Touch {
+            header: header(KIND_TOUCH, seq, us),
+            x_acc: x,
+            y_acc: y,
+            down: true,
+        })
+    }
+
+    /// Runs the 240 Hz tick for `secs` starting at `t0`; returns the last shown point.
+    fn run_ticks(s: &mut PointerSession, t0: f64, secs: f64) -> Option<(f64, f64)> {
+        let mut last = None;
+        let mut t = t0;
+        while t < t0 + secs {
+            let (actions, _) = s.tick(t);
+            for a in actions {
+                if let CursorAction::Move { x, y } = a {
+                    last = Some((x, y));
+                }
+            }
+            t += 1.0 / 240.0;
+        }
+        last
+    }
+
+    #[test]
+    fn watch_mode_packet_switches_to_air_and_turns_move_relatively() {
+        let mut s = session();
+        assert_eq!(s.effective_mode(), ControlMode::Absolute);
+        s.push_packet(&mode(0, MODE_AIR), 0.0);
+        assert_eq!(s.effective_mode(), ControlMode::Air);
+        s.push_packet(
+            &encode(&Packet::Center {
+                header: header(KIND_CENTER, 1, 0),
+            }),
+            0.0,
+        );
+        // A steady right turn at 60 °/s for 0.5 s (100 Hz).
+        let mut left: i16 = 0;
+        for i in 0..50u16 {
+            left -= 60;
+            let us = 10_000 * u32::from(i + 1);
+            s.push_packet(&aim(i + 2, us, left, 0), f64::from(us) / 1e6);
+        }
+        let shown = run_ticks(&mut s, 0.0, 0.55).expect("cursor moved");
+        assert!(
+            shown.0 > 1300.0,
+            "right turn should move right of center, got {shown:?}"
+        );
+        assert!(
+            (shown.1 - 500.0).abs() < 5.0,
+            "no vertical motion, got {shown:?}"
+        );
+        // Holding still afterwards: the cursor stays (no laser snap back to the arm pose).
+        for i in 50..100u16 {
+            let us = 10_000 * u32::from(i + 1);
+            s.push_packet(&aim(i + 2, us, left, 0), f64::from(us) / 1e6);
+        }
+        let held = run_ticks(&mut s, 0.55, 0.5).unwrap_or(shown);
+        assert!(
+            (held.0 - shown.0).abs() < 2.0,
+            "still watch moved {shown:?} -> {held:?}"
+        );
+    }
+
+    #[test]
+    fn cli_mode_override_ignores_the_watch() {
+        let mut s = PointerSession::new(SessionConfig {
+            mode_override: Some(ControlMode::Absolute),
+            ..SessionConfig::default()
+        });
+        s.push_packet(&mode(0, MODE_AIR), 0.0);
+        assert_eq!(s.remote_mode(), Some(ControlMode::Air));
+        assert_eq!(s.effective_mode(), ControlMode::Absolute);
+    }
+
+    #[test]
+    fn touch_mode_follows_the_finger_and_clicks_where_it_stopped() {
+        let mut s = session();
+        s.push_packet(&mode(0, MODE_TOUCH), 0.0);
+        s.push_packet(
+            &encode(&Packet::Center {
+                header: header(KIND_CENTER, 1, 0),
+            }),
+            0.0,
+        );
+        // Aims are ignored in touch mode.
+        s.push_packet(&aim(2, 5_000, 2000, 2000), 0.005);
+        let mut x: i16 = 0;
+        for i in 0..30u16 {
+            x = x.wrapping_add(100); // 1 mm per 10 ms = 100 mm/s, to the right
+            let us = 10_000 * u32::from(i + 1);
+            s.push_packet(&touch(i + 3, us, x, 0), f64::from(us) / 1e6);
+        }
+        let shown = run_ticks(&mut s, 0.0, 0.35).expect("cursor moved");
+        assert!(
+            shown.0 > 1200.0,
+            "finger right moves the cursor right, got {shown:?}"
+        );
+        assert!(
+            (shown.1 - 500.0).abs() < 1.0,
+            "aims must not move it, got {shown:?}"
+        );
+        let click = encode(&Packet::LeftClick {
+            header: header(KIND_LEFT_CLICK, 40, 300_000),
+        });
+        let actions = s.push_packet(&click, 0.36);
+        match actions.first() {
+            Some(CursorAction::Move { x, .. }) => assert!(*x > 1200.0, "click at {x}"),
+            other => panic!("expected a move first, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn relative_mode_adopts_a_real_mouse_position_when_idle() {
+        let mut s = session();
+        s.push_packet(&mode(0, MODE_AIR), 0.0);
+        s.push_packet(
+            &encode(&Packet::Center {
+                header: header(KIND_CENTER, 1, 0),
+            }),
+            0.0,
+        );
+        run_ticks(&mut s, 0.0, 0.1);
+        assert!(s.wants_external_cursor());
+        s.sync_external_cursor((300.0, 200.0), 1.0);
+        let mut left: i16 = 0;
+        for i in 0..20u16 {
+            left -= 60;
+            let us = 1_000_000 + 10_000 * u32::from(i + 1);
+            s.push_packet(&aim(i + 2, us, left, 0), f64::from(us) / 1e6);
+        }
+        let shown = run_ticks(&mut s, 1.0, 0.25).expect("moved");
+        assert!(
+            shown.0 > 300.0 && shown.0 < 1000.0,
+            "continued from the mouse, got {shown:?}"
+        );
+        assert!(
+            (shown.1 - 200.0).abs() < 5.0,
+            "kept the mouse's y, got {shown:?}"
+        );
+        // A watch click right after a real-mouse move lands where the mouse left it.
+        let mut s2 = session();
+        s2.push_packet(&mode(0, MODE_AIR), 0.0);
+        s2.push_packet(
+            &encode(&Packet::Center {
+                header: header(KIND_CENTER, 1, 0),
+            }),
+            0.0,
+        );
+        s2.push_packet(&aim(2, 10_000, 0, 0), 0.01);
+        run_ticks(&mut s2, 0.0, 0.1);
+        s2.sync_external_cursor((1055.0, 465.0), 2.0);
+        let click = encode(&Packet::LeftClick {
+            header: header(KIND_LEFT_CLICK, 3, 2_100_000),
+        });
+        s2.push_packet(&aim(4, 2_090_000, 0, 0), 2.09);
+        match s2.push_packet(&click, 2.1).first() {
+            Some(CursorAction::Move { x, y }) => {
+                assert!(
+                    (x - 1055.0).abs() < 1.0 && (y - 465.0).abs() < 1.0,
+                    "click at {x},{y}"
+                )
+            }
+            other => panic!("expected a move, got {other:?}"),
+        }
+        // While the watch is moving, the OS cursor's lag is not adopted.
+        let before = s.target;
+        s.sync_external_cursor((10.0, 10.0), 1.21);
+        assert_eq!(s.target, before);
+    }
+
+    #[test]
+    fn pause_is_a_clutch_in_air_mode() {
+        let mut s = session();
+        s.push_packet(&mode(0, MODE_AIR), 0.0);
+        s.push_packet(
+            &encode(&Packet::Center {
+                header: header(KIND_CENTER, 1, 0),
+            }),
+            0.0,
+        );
+        let pause = |seq, p| {
+            encode(&Packet::Pause {
+                header: header(KIND_PAUSE, seq, 0),
+                paused: p,
+            })
+        };
+        s.push_packet(&aim(2, 10_000, 0, 0), 0.01);
+        s.push_packet(&pause(3, true), 0.02);
+        // Arm swings 40° while paused; the watch sends no aims.
+        s.push_packet(&pause(4, false), 0.5);
+        s.push_packet(&aim(5, 510_000, -4000, 0), 0.51);
+        s.push_packet(&aim(6, 520_000, -4000, 0), 0.52);
+        let shown = run_ticks(&mut s, 0.5, 0.1).unwrap_or((1000.0, 500.0));
+        assert!(
+            (shown.0 - 1000.0).abs() < 2.0,
+            "re-clutch must not jump, got {shown:?}"
+        );
     }
 }

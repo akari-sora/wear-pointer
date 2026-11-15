@@ -47,8 +47,13 @@ fn main() {
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };
-        let Some(pos) = line.find("wp-probe") else { continue };
-        let body = line[pos..].splitn(2, ": ").nth(1).unwrap_or("").trim();
+        let Some(pos) = line.find("wp-probe") else {
+            continue;
+        };
+        let body = line[pos..]
+            .split_once(": ")
+            .map_or("", |(_, rest)| rest)
+            .trim();
 
         // The receiver emits Connected before it subscribes, and the watch can
         // send before the probe logs its CCCD write callback, so "connected"
@@ -65,14 +70,21 @@ fn main() {
         }
         if body.starts_with("disconnected") {
             println!("== link {} disconnected", link.index);
-            apply(&session.on_disconnected(), &mut held, &mut cursor, "disconnect");
+            apply(
+                &session.on_disconnected(),
+                &mut held,
+                &mut cursor,
+                "disconnect",
+            );
             continue;
         }
         let mut parts = body.split_whitespace();
         if parts.next() != Some("rx") {
             continue;
         }
-        let (Some(ns), Some(hex)) = (parts.next(), parts.next()) else { continue };
+        let (Some(ns), Some(hex)) = (parts.next(), parts.next()) else {
+            continue;
+        };
         let Ok(ns) = ns.parse::<u64>() else { continue };
         let Some(bytes) = unhex(hex) else { continue };
         let local_s = ns as f64 / 1e9;
@@ -106,7 +118,10 @@ fn main() {
                 if step != 1 {
                     if step > 0x8000 || step == 0 {
                         link.steps_back += 1;
-                        failures.push(format!("link {} seq stepped back {prev} -> {seq}", link.index));
+                        failures.push(format!(
+                            "link {} seq stepped back {prev} -> {seq}",
+                            link.index
+                        ));
                     } else {
                         link.gaps += u64::from(step - 1);
                         failures.push(format!("link {} seq gap {prev} -> {seq}", link.index));
@@ -131,7 +146,9 @@ fn main() {
                         if near { "OK" } else { "NOT NEAR ZERO" },
                     );
                     if !near {
-                        failures.push(format!("aim after Center#{center_seq} is not on the new base"));
+                        failures.push(format!(
+                            "aim after Center#{center_seq} is not on the new base"
+                        ));
                     }
                 }
                 last_aim = Some(aim);
@@ -142,17 +159,24 @@ fn main() {
             }
             Packet::LeftClick { .. } => println!("   seq {seq} LeftClick"),
             Packet::RightClick { .. } => println!("   seq {seq} RightClick"),
-            Packet::Drag { down, .. } => println!("   seq {seq} Drag {}", if *down { "down" } else { "up" }),
-            Packet::Pause { paused, .. } => println!("   seq {seq} {}", if *paused { "Pause" } else { "Resume" }),
+            Packet::Drag { down, .. } => {
+                println!("   seq {seq} Drag {}", if *down { "down" } else { "up" })
+            }
+            Packet::Pause { paused, .. } => {
+                println!("   seq {seq} {}", if *paused { "Pause" } else { "Resume" })
+            }
             Packet::Scroll { delta_px, .. } => println!("   seq {seq} Scroll {delta_px}"),
             Packet::Stats {
                 samples,
                 notifies_ok,
                 notifies_drop,
                 ..
-            } => println!("   seq {seq} Stats samples={samples} ok={notifies_ok} drop={notifies_drop}"),
+            } => println!(
+                "   seq {seq} Stats samples={samples} ok={notifies_ok} drop={notifies_drop}"
+            ),
             Packet::Sensitivity { dpi, .. } => println!("   seq {seq} Sensitivity {dpi} DPI"),
-            Packet::Info { .. } | Packet::Unknown { .. } => {}
+            Packet::Mode { mode, .. } => println!("   seq {seq} Mode {mode}"),
+            Packet::Info { .. } | Packet::Touch { .. } | Packet::Unknown { .. } => {}
         }
         let actions = session.push_packet(&bytes, local_s);
         apply(&actions, &mut held, &mut cursor, "packet");
@@ -225,7 +249,9 @@ fn apply(actions: &[CursorAction], held: &mut bool, cursor: &mut Option<(f64, f6
                     "   -> {:?} {} ({why}){}",
                     button,
                     if *down { "down" } else { "up" },
-                    cursor.map(|(x, y)| format!(" at {x:.0},{y:.0}")).unwrap_or_default(),
+                    cursor
+                        .map(|(x, y)| format!(" at {x:.0},{y:.0}"))
+                        .unwrap_or_default(),
                 );
             }
             CursorAction::Scroll { delta_px } => println!("   -> scroll {delta_px} ({why})"),
@@ -234,7 +260,7 @@ fn apply(actions: &[CursorAction], held: &mut bool, cursor: &mut Option<(f64, f6
 }
 
 fn unhex(hex: &str) -> Option<Vec<u8>> {
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         return None;
     }
     (0..hex.len())

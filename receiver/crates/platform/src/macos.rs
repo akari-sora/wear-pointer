@@ -141,6 +141,13 @@ impl PointerBackend for MacosBackend {
         Ok(())
     }
 
+    fn cursor_position(&self) -> Option<(f64, f64)> {
+        let source = Self::source().ok()?;
+        let event = CGEvent::new(source).ok()?;
+        let point = event.location();
+        Some((point.x, point.y))
+    }
+
     fn screen(&self) -> Screen {
         self.screen
     }

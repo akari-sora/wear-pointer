@@ -1,3 +1,3 @@
-{"ts": 1794708527.970992, "mono": 1193345.211206, "kind": "shield_ready"}
-{"ts": 1794708571.764379, "mono": 1193389.004594, "kind": "hud_saved", "path": "/tmp/wp-ev-omarchy/shield_hud.png", "width": 500, "height": 290}
-{"ts": 1794708571.764672, "mono": 1193389.004876, "kind": "shield_closed", "summary": {"motion": 0, "left_down": 0, "left_up": 0, "drag_motion": 0, "right_down": 0, "right_up": 0, "scroll_up": 0, "scroll_down": 0}, "max_hold_ms": 0.0}
+{"ts": 1794725232.616133, "mono": 1210049.856348, "kind": "shield_ready"}
+{"ts": 1794725273.683489, "mono": 1210090.923704, "kind": "hud_saved", "path": "/tmp/wp-ev-omarchy/shield_hud.png", "width": 500, "height": 290}
+{"ts": 1794725273.683781, "mono": 1210090.923985, "kind": "shield_closed", "summary": {"motion": 0, "left_down": 0, "left_up": 0, "drag_motion": 0, "right_down": 0, "right_up": 0, "scroll_up": 0, "scroll_down": 0}, "max_hold_ms": 0.0}

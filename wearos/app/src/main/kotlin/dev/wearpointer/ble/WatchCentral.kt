@@ -206,7 +206,8 @@ class WatchCentral(
             return
         }
         // Aim may be lost without harm; discrete events ask for a response.
-        val type = if (packet[1].toInt() == Packets.KIND_AIM) {
+        val kind = packet[1].toInt()
+        val type = if (kind == Packets.KIND_AIM || kind == Packets.KIND_TOUCH) {
             BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
         } else {
             BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT

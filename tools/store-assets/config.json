@@ -1,0 +1,172 @@
+{
+  "_comment": "Store/README marketing assets. Paths are relative to this file (absolute paths also work). Localised fields are either a plain string (same for all locales) or an object keyed by locale. Wrap words in *asterisks* inside a headline to tint them with the slide accent. Set \"enabled\": false to keep a slide in the config without rendering it.",
+  "locales": ["en-US", "zh-TW"],
+  "render_scale": 2,
+  "brand": {
+    "name": "Wear Pointer",
+    "icon": "../../docs/assets/icon-1024.png"
+  },
+  "screens": {
+    "main": "screens/main.png",
+    "mode": "screens/sheet_mode.png",
+    "sensitivity": "screens/sensitivity.png",
+    "drag": "screens/drag.png",
+    "paused": "screens/paused.png",
+    "stopped": "screens/stopped.png",
+    "privacy": "screens/privacy.png"
+  },
+
+  "phone": {
+    "size": [1080, 1920],
+    "slides": [
+      {
+        "id": "mouse",
+        "enabled": true,
+        "layout": "watch-laptop",
+        "watch": "main",
+        "accent": "emerald",
+        "desktop": "point",
+        "text": {
+          "en-US": {"eyebrow": "WEAR OS AIR MOUSE", "headline": "Your watch is now a *mouse*", "sub": "Point at any computer and move the cursor."},
+          "zh-TW": {"eyebrow": "WEAR OS 空中滑鼠", "headline": "手錶秒變*空中滑鼠*", "sub": "對準電腦，手腕一轉游標就動。"}
+        },
+        "link": {"en-US": "BLE · ~10 ms", "zh-TW": "藍牙 · 約 10 ms"},
+        "rows": [
+          {"icon": "command", "color": "sky", "title": "macOS", "sub": "CGEventPost"},
+          {"icon": "window", "color": "sky", "title": "Windows", "sub": "SendInput"},
+          {"icon": "terminal", "color": "sky", "title": "Linux", "sub": "Hyprland · uinput"}
+        ]
+      },
+      {
+        "id": "point",
+        "enabled": true,
+        "layout": "watch-hero",
+        "watch": "main",
+        "accent": "emerald",
+        "decor": "motion",
+        "text": {
+          "en-US": {"eyebrow": "SPATIAL AIM", "headline": "Point with your *wrist*", "sub": "Gyro + gravity fusion, filtered for a steady cursor."},
+          "zh-TW": {"eyebrow": "空間指向", "headline": "轉動*手腕*就能指", "sub": "陀螺儀加重力融合，游標穩定不飄。"}
+        },
+        "extra": {
+          "type": "stats",
+          "items": [
+            {"value": "100 Hz", "label": {"en-US": "GYRO SAMPLING", "zh-TW": "陀螺儀取樣"}},
+            {"value": "1600", "unit": "DPI", "label": {"en-US": "DEFAULT SPEED", "zh-TW": "預設靈敏度"}},
+            {"value": "~10", "unit": "ms", "label": {"en-US": "BLE LATENCY", "zh-TW": "藍牙延遲"}}
+          ]
+        }
+      },
+      {
+        "id": "drag",
+        "enabled": true,
+        "layout": "watch-laptop",
+        "watch": "drag",
+        "accent": "emerald",
+        "desktop": "drag",
+        "text": {
+          "en-US": {"eyebrow": "GESTURES", "headline": "Tap to click, *hold to drag*", "sub": "The ring turns emerald when a drag locks."},
+          "zh-TW": {"eyebrow": "手勢操作", "headline": "點一下按，*長按拖曳*", "sub": "外圈亮起綠光，代表已鎖定拖曳。"}
+        },
+        "link": {"en-US": "DRAG LOCKED", "zh-TW": "已鎖定拖曳"},
+        "link_color": "emerald",
+        "rows": [
+          {"icon": "tap", "color": "emerald", "title": {"en-US": "Tap", "zh-TW": "輕點"}, "sub": {"en-US": "Left click", "zh-TW": "左鍵點擊"}},
+          {"icon": "hold", "color": "emerald", "title": {"en-US": "Hold", "zh-TW": "長按"}, "sub": {"en-US": "Drag & drop", "zh-TW": "拖曳放開"}},
+          {"icon": "bezel", "color": "sky", "title": {"en-US": "Bezel", "zh-TW": "錶圈"}, "sub": {"en-US": "Scroll", "zh-TW": "捲動頁面"}}
+        ]
+      },
+      {
+        "id": "modes",
+        "enabled": true,
+        "layout": "watch-laptop",
+        "watch": "mode",
+        "accent": "emerald",
+        "desktop": "point",
+        "text": {
+          "en-US": {"eyebrow": "THREE POINTING MODES", "headline": "Laser, air mouse,\nor *touchpad*", "sub": "Switch live on your wrist — no recentering needed in Air or Touch."},
+          "zh-TW": {"eyebrow": "三種操控模式", "headline": "雷射、空中滑鼠\n與*觸控板*", "sub": "手錶上隨時切換，相對模式免對齊回中。"}
+        },
+        "link": {"en-US": "LASER · AIR · TOUCH", "zh-TW": "三種模式即時切換"},
+        "link_color": "emerald",
+        "rows": [
+          {"icon": "center", "color": "emerald", "title": {"en-US": "Laser", "zh-TW": "雷射指向"}, "sub": {"en-US": "Absolute aim", "zh-TW": "指哪到哪絕對定位"}},
+          {"icon": "gyro", "color": "sky", "title": {"en-US": "Air mouse", "zh-TW": "空中滑鼠"}, "sub": {"en-US": "Relative gyro", "zh-TW": "陀螺儀相對加速度"}},
+          {"icon": "tap", "color": "emerald", "title": {"en-US": "Touchpad", "zh-TW": "觸控板"}, "sub": {"en-US": "Watch slide", "zh-TW": "錶面手指滑動操控"}}
+        ]
+      },
+      {
+        "id": "sensitivity",
+        "enabled": true,
+        "layout": "watch-hero",
+        "watch": "sensitivity",
+        "accent": "emerald",
+        "decor": "bezel",
+        "text": {
+          "en-US": {"eyebrow": "LIVE SENSITIVITY", "headline": "Tune sensitivity *on your wrist*", "sub": "Turn the bezel. Changes sync to the computer instantly."},
+          "zh-TW": {"eyebrow": "即時靈敏度", "headline": "*錶圈*直接調靈敏度", "sub": "轉動錶圈，電腦端立即同步。"}
+        },
+        "extra": {"type": "dpi-scale", "min": 400, "max": 3200, "value": 2400, "step": 400, "label": {"en-US": "200 DPI STEPS", "zh-TW": "每格 200 DPI"}}
+      },
+      {
+        "id": "pause",
+        "enabled": true,
+        "layout": "watch-hero",
+        "watch": "paused",
+        "accent": "amber",
+        "decor": "none",
+        "text": {
+          "en-US": {"eyebrow": "ALWAYS IN CONTROL", "headline": "Pause anytime, *recenter* in one tap", "sub": "", "_sub_note": "left empty on purpose: headline wraps to two lines"},
+          "zh-TW": {"eyebrow": "隨時掌控", "headline": "隨時暫停，*一鍵回中*", "sub": "游標偏了？對準螢幕點 Center 就歸位。"}
+        },
+        "extra": {
+          "type": "actions",
+          "items": [
+            {"icon": "pause", "color": "amber", "title": {"en-US": "Pause", "zh-TW": "暫停"}, "desc": {"en-US": "Cursor holds still, link stays up", "zh-TW": "游標停住，連線不中斷"}},
+            {"icon": "center", "color": "emerald", "title": {"en-US": "Center", "zh-TW": "回中"}, "desc": {"en-US": "Cursor snaps back to the middle", "zh-TW": "游標瞬間回到螢幕中央"}},
+            {"icon": "stop", "color": "rose", "title": {"en-US": "Stop", "zh-TW": "停止"}, "desc": {"en-US": "Ends the session right away", "zh-TW": "一鍵結束這次連線"}}
+          ]
+        }
+      },
+      {
+        "id": "open-source",
+        "enabled": true,
+        "layout": "open-source",
+        "accent": "emerald",
+        "text": {
+          "en-US": {"eyebrow": "PRIVACY FIRST", "headline": "Open source.\n*No accounts.*\n*No tracking.*", "sub": ""},
+          "zh-TW": {"eyebrow": "隱私優先", "headline": "開源・*免帳號*・*零追蹤*", "sub": "手錶不連網，動作資料只傳到你的電腦。"}
+        },
+        "os": [
+          {"icon": "command", "title": "macOS", "sub": "CoreBluetooth\nCGEventPost"},
+          {"icon": "window", "title": "Windows", "sub": "WinRT BLE\nSendInput"},
+          {"icon": "terminal", "title": "Linux", "sub": "BlueZ · Hyprland\nuinput"}
+        ],
+        "points": [
+          {"en-US": "No sign-in, no cloud, no ads", "zh-TW": "不用登入、不上雲、無廣告"},
+          {"en-US": "No INTERNET permission on the watch", "zh-TW": "手錶 App 沒有網路權限"},
+          {"en-US": "Rust desktop receiver you can audit", "zh-TW": "Rust 桌面接收端，原始碼可查"}
+        ],
+        "footnote": "MIT · GitLab"
+      }
+    ]
+  },
+
+  "feature_graphic": {
+    "size": [1024, 500],
+    "watch": "main",
+    "text": {
+      "en-US": {"tagline": "Turn your Galaxy Watch into an air mouse for your computer.", "chips": "macOS · Windows · Linux"},
+      "zh-TW": {"tagline": "把 Galaxy Watch\n變成電腦的空中滑鼠。", "chips": "macOS · Windows · Linux"}
+    }
+  },
+
+  "hero": {
+    "size": [1600, 900],
+    "locales": ["en-US"],
+    "watch": "main",
+    "text": {
+      "en-US": {"eyebrow": "OPEN SOURCE · WEAR OS", "headline": "Your watch is now a *mouse*.", "sub": "A Wear OS air mouse with a Rust desktop receiver. 100 Hz wrist aim over Bluetooth LE, about 10 ms to the cursor.", "chips": ["macOS", "Windows", "Linux / Hyprland"], "footnote": "MIT · gitlab.com/aa22396584/wear-pointer"}
+    }
+  }
+}

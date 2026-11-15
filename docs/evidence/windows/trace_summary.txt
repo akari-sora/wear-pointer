@@ -1,40 +1,41 @@
-# start_unix 1794708805.736611
-4.483394 connected 1 watch (79:65:F0:06:A0:82)
-4.560492 rx 1 01060000f4ab62616401e603534d2d4c333130
-4.561494 rx 1 0109010033c262614006
-4.600925 rx 1 01000200002163614e012e00
-4.603686 move 1012.9 683.2
-4.601545 rx 1 01000300386f63614e012e00
-4.602201 rx 1 01000400be9863614e012e00
-4.620627 rx 1 0100050084bd63614e012e00
-4.621017 rx 1 01000600d8ea63614e012e00
-4.640261 rx 1 01000700d00b64614e012d00
-4.640942 rx 1 01000800ed3264614e012e00
-4.660280 rx 1 01000900025a64614e012d00
-4.661088 rx 1 01000a001d8164614e012d00
-4.662111 move 1012.9 683.3
-# --- non-move actions, live DPI updates, and link epochs ---
-# start_unix 1794708805.736611
-4.483394 connected 1 watch (79:65:F0:06:A0:82)
-11.869781 button Left down
-11.875381 button Left up
-12.480909 button Left down
-12.492084 button Left up
-13.459257 button Left down
-13.967996 button Left up
-14.641554 button Right down
-14.658669 button Right up
-15.259827 scroll -272
-15.751149 scroll -272
-16.141665 scroll 272
-16.579391 scroll 272
-18.033483 dpi 1800
-18.485214 dpi 2000
-19.008565 dpi 2600
-19.579648 dpi 2400
-20.090043 dpi 1600
-26.671856 disconnected 1 device disconnected
-31.444872 connected 2 watch (77:16:6C:B6:6B:4B)
-33.889450 button Left down
-33.891960 button Left up
-# total_rx=2208 total_moves=1570
+# start_unix 1794725127.994285
+3.691652 connected 1 watch (7D:68:72:97:71:E8)
+3.749520 rx 1 01060000997b382e6401e603534d2d4c333130
+3.769927 rx 1 010901004d8a382e4006
+3.770624 rx 1 010a0200c68a382e00
+3.771824 rx 1 0100030087c3382efcfffcff
+3.773636 move 1283.2 723.2
+3.789596 rx 1 01000400a3ea382efdfffcff
+3.809267 rx 1 01000500f538392efcfffcff
+3.809914 rx 1 010006005061392efcfffbff
+3.810505 rx 1 010007003887392efcfffcff
+3.829468 rx 1 010008005cae392efdfffcff
+3.829953 rx 1 010009007bd5392efdfffcff
+3.832086 move 1283.1 723.2
+3.849346 rx 1 01000a0001ff392efcfffcff
+# --- non-move actions, mode switches, live DPI updates, and link epochs ---
+# start_unix 1794725127.994285
+3.691652 connected 1 watch (7D:68:72:97:71:E8)
+12.559170 button Left down
+12.575719 button Left up
+13.173166 button Right down
+13.175471 button Right up
+13.772836 scroll -272
+14.160415 scroll 272
+15.556118 dpi 1800
+16.023180 dpi 2000
+16.650557 dpi 1600
+17.086203 mode air
+27.210741 button Left down
+27.225683 button Left up
+33.257441 mode touch
+44.103096 button Left down
+44.108546 button Left up
+45.063436 button Left down
+46.430147 button Left up
+49.831367 mode absolute
+53.687038 disconnected 1 device disconnected
+58.653458 connected 2 watch (6A:79:8B:ED:D4:56)
+60.485331 button Left down
+60.491807 button Left up
+# total_rx=5148 total_moves=1734

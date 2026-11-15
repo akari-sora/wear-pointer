@@ -7,12 +7,15 @@
 use crate::PointerBackend;
 use anyhow::{anyhow, Result};
 use wear_pointer_core::{Button, Screen};
+use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
     MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
     MOUSEEVENTF_WHEEL, MOUSEINPUT, MOUSE_EVENT_FLAGS,
 };
-use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetCursorPos, GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN,
+};
 
 pub struct WindowsBackend {
     screen: Screen,
@@ -109,6 +112,12 @@ impl PointerBackend for WindowsBackend {
             return Ok(());
         }
         self.send(MOUSEEVENTF_WHEEL, 0, 0, data as u32)
+    }
+
+    fn cursor_position(&self) -> Option<(f64, f64)> {
+        let mut point = POINT::default();
+        unsafe { GetCursorPos(&mut point) }.ok()?;
+        Some((f64::from(point.x), f64::from(point.y)))
     }
 
     fn screen(&self) -> Screen {

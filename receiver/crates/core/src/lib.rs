@@ -8,6 +8,7 @@ mod aim;
 mod filter;
 mod packet;
 mod project;
+mod relative;
 mod session;
 mod stats;
 
@@ -16,11 +17,12 @@ pub use filter::OneEuroFilter;
 pub use packet::{
     control, decode, encode, Packet, PacketError, BASE_DPI, CONTROL_REQUEST_STATS, CONTROL_UUID,
     CURSOR_HZ, DEFAULT_DPI, DPI_STEP, HEADER_LEN, HOLD_TO_DRAG_MS, KIND_AIM, KIND_CENTER,
-    KIND_DRAG, KIND_INFO, KIND_LEFT_CLICK, KIND_PAUSE, KIND_RIGHT_CLICK, KIND_SCROLL,
-    KIND_SENSITIVITY, KIND_STATS, MAX_DPI, MAX_PACKET_LEN, MIN_DPI, POINTER_UUID, SENSOR_HZ,
-    SERVICE_UUID, VERSION,
+    KIND_DRAG, KIND_INFO, KIND_LEFT_CLICK, KIND_MODE, KIND_PAUSE, KIND_RIGHT_CLICK, KIND_SCROLL,
+    KIND_SENSITIVITY, KIND_STATS, KIND_TOUCH, MAX_DPI, MAX_PACKET_LEN, MIN_DPI, MODE_ABSOLUTE,
+    MODE_AIR, MODE_TOUCH, POINTER_UUID, SENSOR_HZ, SERVICE_UUID, VERSION,
 };
 pub use project::{dpi_to_speed, project_aim, reach_degrees, speed_to_dpi, Screen};
+pub use relative::{AirMouse, ControlMode, TouchPad};
 pub use session::{Button, CursorAction, DebugSnapshot, PointerSession, SessionConfig};
 pub use stats::{LinkStats, Timing};
 

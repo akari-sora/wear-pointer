@@ -104,31 +104,14 @@ impl Default for CentralLink {
 #[async_trait]
 impl PointerLink for CentralLink {
     async fn run(&mut self, incoming: Sender<LinkEvent>, clock: Instant) -> anyhow::Result<()> {
-        let manager = Manager::new().await.context("bluetooth manager")?;
-        let adapters = manager.adapters().await.context("listing bluetooth adapters")?;
-        let mut chosen = None;
-        for candidate in adapters {
-            let info = candidate.adapter_info().await.unwrap_or_default();
-            let wanted = match &self.adapter {
-                Some(name) => info.contains(name.as_str()),
-                None => true,
-            };
-            if wanted {
-                chosen = Some((candidate, info));
-                break;
-            }
-        }
-        let (adapter, info) = chosen.ok_or_else(|| match &self.adapter {
-            Some(name) => anyhow!("no bluetooth adapter matching {name:?}"),
-            None => anyhow!("no bluetooth adapter. Is Bluetooth / BlueZ running?"),
-        })?;
-        eprintln!("wear-pointer: bluetooth adapter ready ({info}), role=central");
+        let (mut _manager, mut adapter) = self.open_adapter(true).await?;
         if let Some(filter) = &self.device {
             eprintln!("wear-pointer: device filter active: {filter:?}");
         }
         let mut epoch = 0u64;
         let mut failed_until: HashMap<String, Instant> = HashMap::new();
         let mut shutdown = self.shutdown.clone();
+        let mut dead_streak = 0u32;
         loop {
             if is_shutdown(&shutdown) {
                 return Ok(());
@@ -150,17 +133,78 @@ impl PointerLink for CentralLink {
             {
                 Ok(SessionOutcome::Shutdown) => return Ok(()),
                 Ok(SessionOutcome::Disconnected(reason)) => {
+                    dead_streak = 0;
                     eprintln!("wear-pointer: watch disconnected ({reason})")
                 }
-                Err(err) => eprintln!("wear-pointer: bluetooth session ended: {err:#}"),
+                Err(err) => {
+                    let text = format!("{err:#}");
+                    eprintln!("wear-pointer: bluetooth session ended: {text}");
+                    if adapter_is_dead(&text) {
+                        dead_streak += 1;
+                    }
+                }
             }
             tokio::select! {
                 () = wait_shutdown(&mut shutdown) => return Ok(()),
                 () = tokio::time::sleep(Duration::from_secs(1)) => {}
             }
+            // btleplug's CoreBluetooth worker thread can panic on a racy
+            // subscribe ("We should still have a future at this point!"). Its
+            // channel is then closed for good and every later scan fails, so
+            // the adapter has to be rebuilt instead of retried.
+            if dead_streak > 0 {
+                eprintln!("wear-pointer: bluetooth adapter stopped responding; reopening it");
+                match self.open_adapter(false).await {
+                    Ok((manager, fresh)) => {
+                        _manager = manager;
+                        adapter = fresh;
+                        dead_streak = 0;
+                    }
+                    Err(err) => eprintln!("wear-pointer: reopening bluetooth failed: {err:#}"),
+                }
+            }
             eprintln!("wear-pointer: scanning again");
         }
     }
+}
+
+impl CentralLink {
+    async fn open_adapter(&self, announce: bool) -> anyhow::Result<(Manager, Adapter)> {
+        let manager = Manager::new().await.context("bluetooth manager")?;
+        let adapters = manager
+            .adapters()
+            .await
+            .context("listing bluetooth adapters")?;
+        let mut chosen = None;
+        for candidate in adapters {
+            let info = candidate.adapter_info().await.unwrap_or_default();
+            let wanted = match &self.adapter {
+                Some(name) => info.contains(name.as_str()),
+                None => true,
+            };
+            if wanted {
+                chosen = Some((candidate, info));
+                break;
+            }
+        }
+        let (adapter, info) = chosen.ok_or_else(|| match &self.adapter {
+            Some(name) => anyhow!("no bluetooth adapter matching {name:?}"),
+            None => anyhow!("no bluetooth adapter. Is Bluetooth / BlueZ running?"),
+        })?;
+        if announce {
+            eprintln!("wear-pointer: bluetooth adapter ready ({info}), role=central");
+        } else {
+            eprintln!("wear-pointer: bluetooth adapter reopened ({info})");
+        }
+        Ok((manager, adapter))
+    }
+}
+
+/// The adapter's worker is gone (closed channel), as opposed to an ordinary
+/// failed connection attempt that a plain retry fixes.
+fn adapter_is_dead(error_text: &str) -> bool {
+    let lower = error_text.to_ascii_lowercase();
+    lower.contains("channel closed") || lower.contains("receiving on a closed channel")
 }
 
 /// Read notifications until the peripheral disconnects, even if the
@@ -251,6 +295,7 @@ async fn wait_shutdown(shutdown: &mut Option<tokio::sync::watch::Receiver<bool>>
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn session(
     adapter: &Adapter,
     service: Uuid,
@@ -488,7 +533,7 @@ async fn wait_for_watch(
                     return Ok(Some(found));
                 }
                 announced += 1;
-                if announced == 1 || announced % 6 == 0 {
+                if announced == 1 || announced.is_multiple_of(6) {
                     eprintln!("wear-pointer: still scanning. Open wear-pointer on the watch and grant Bluetooth.");
                 }
             }
@@ -549,7 +594,7 @@ async fn advertises_service(
             } else {
                 true
             };
-            live && props.services.iter().any(|uuid| *uuid == service)
+            live && props.services.contains(&service)
                 && matches_device_filter(
                     device_filter,
                     &id_str,
@@ -563,6 +608,14 @@ async fn advertises_service(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_closed_corebluetooth_channel_means_reopen_the_adapter() {
+        assert!(super::adapter_is_dead("start scan: Channel closed"));
+        assert!(!super::adapter_is_dead(
+            "connect timed out: deadline has elapsed"
+        ));
+    }
+
     use super::*;
     use futures::channel::mpsc;
 
@@ -615,7 +668,10 @@ mod tests {
         .await
         .expect("silence watchdog fired");
         assert_eq!(stop, PumpStop::Silent);
-        assert!(matches!(incoming_rx.try_recv(), Ok(LinkEvent::Packet { epoch: 3, .. })));
+        assert!(matches!(
+            incoming_rx.try_recv(),
+            Ok(LinkEvent::Packet { epoch: 3, .. })
+        ));
         let _keep_open = notify_tx;
     }
 

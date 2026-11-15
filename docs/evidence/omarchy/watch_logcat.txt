@@ -1,120 +1,150 @@
-11-15 10:09:43.428 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:09:44.430 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:09:45.434 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
-11-15 10:09:46.347   564  1017 D SurfaceFlinger: renderScreenImpl:layers for present - dev.wearpointer.app/dev.wearpointer.MainActivity#95995
-11-15 10:09:46.351   564   611 D RenderEngine: [SEC_GC_CMN_SF_EFFECTS] drawLayersInternal,1139, Rendering layer dev.wearpointer.app/dev.wearpointer.MainActivity#95995 at index 1
-11-15 10:09:46.423 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:09:47.443 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
-11-15 10:09:48.439 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:09:49.441 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:09:50.434 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:09:51.440 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:09:52.442 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
-11-15 10:09:53.437 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:09:54.447 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:09:55.470 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:09:56.449 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:09:57.459 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
-11-15 10:09:58.457 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:09:59.455 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:00.455 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:01.466 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:02.464 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:03.464 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:04.460 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:05.469 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
-11-15 10:10:06.474 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:07.467 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:08.475 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:09.473 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:10.478 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:11.479 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
-11-15 10:10:12.483 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:13.481 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:14.477 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:15.475 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:16.483 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:17.482 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:18.478 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:19.494 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
-11-15 10:10:20.490 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:21.490 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:22.490 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:23.497 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:24.495 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:25.494 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:26.501 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:27.506 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:28.511 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
-11-15 10:10:29.511 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
-11-15 10:10:30.494 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:31.501 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:32.506 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:33.511 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
-11-15 10:10:34.506 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:35.518 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:36.515 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
-11-15 10:10:37.518 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:38.519 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:39.519 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:40.526 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1004
-11-15 10:10:41.527 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
-11-15 10:10:42.529 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:43.528 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:44.536 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:45.535 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:46.442   564  1149 D SurfaceFlinger: renderScreenImpl:layers for present - dev.wearpointer.app/dev.wearpointer.MainActivity#95995
-11-15 10:10:46.449   564   611 D RenderEngine: [SEC_GC_CMN_SF_EFFECTS] drawLayersInternal,1139, Rendering layer dev.wearpointer.app/dev.wearpointer.MainActivity#95995 at index 1
-11-15 10:10:46.529 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:47.548 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:48.551 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:49.546 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
-11-15 10:10:50.546 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
-11-15 10:10:51.553 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:52.550 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:53.562 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
-11-15 10:10:54.556 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
-11-15 10:10:55.565 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:56.557 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:57.562 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:58.559 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:10:59.557 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:00.565 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:01.563 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:02.557 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:03.566 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:04.573 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:05.568 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:06.572 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:07.571 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:08.571 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:09.575 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:10.578 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:11.582 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
-11-15 10:11:12.585 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
-11-15 10:11:13.576 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:14.589 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:15.588 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:16.596 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:17.598 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:18.596 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:19.595 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:20.598 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:21.600 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:22.599 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:23.602 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:24.600 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:25.599 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:26.602 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:27.604 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:28.605 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:29.604 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:30.611 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:31.613 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:32.610 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:33.613 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:34.614 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:35.619 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:36.620 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:37.621 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
-11-15 10:11:38.629 12039 12954 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
+11-15 14:47:23.756 28769  2140 I wear-pointer: samples=100 accepted=103 completed=103 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 14:47:23.958 28769 28769 I wear-pointer: mode=AIR
+11-15 14:47:23.959   849 16865 D VibratorManagerService: vibrate - uid: 10004, opPkg: dev.wearpointer.app, effect: Mono{mEffect=Composed{segments=[SemHaptic{mType=50038}], repeat=-1, mMagnitudeType=TYPE_EXTRA}}, attrs: VibrationAttributes{mUsage=TOUCH, mAudioUsage= USAGE_UNKNOWN, mFlags=0, tags=}, reason: performHapticFeedback(constant=16): ViewRootImpl#performHapticFeedback, token: com.android.server.vibrator.VibratorManagerService@2d29c9d
+11-15 14:47:23.959   849 16865 D VibratorManagerService: Check AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned audio=allow, op=allow
+11-15 14:47:23.959   849 16865 D VibratorManagerService: Start AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned allow
+11-15 14:47:24.087   849  1005 D VibratorManagerService: Finish AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app
+11-15 14:47:24.768 28769  2140 I wear-pointer: samples=100 accepted=102 completed=102 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 14:47:24.877   387   387 D io_stats: !@ Write_top(KB): wearpointer.app(28769) 32
+11-15 14:47:25.647   849 16865 D VibratorManagerService: vibrate - uid: 10004, opPkg: dev.wearpointer.app, effect: Mono{mEffect=Composed{segments=[SemHaptic{mType=50038}], repeat=-1, mMagnitudeType=TYPE_EXTRA}}, attrs: VibrationAttributes{mUsage=TOUCH, mAudioUsage= USAGE_UNKNOWN, mFlags=0, tags=}, reason: performHapticFeedback(constant=16): ViewRootImpl#performHapticFeedback, token: com.android.server.vibrator.VibratorManagerService@2d29c9d
+11-15 14:47:25.649   849 16865 D VibratorManagerService: Check AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned audio=allow, op=allow
+11-15 14:47:25.649   849 16865 D VibratorManagerService: Start AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned allow
+11-15 14:47:25.759 28769  2140 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=1 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 14:47:25.777   849  1005 D VibratorManagerService: Finish AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app
+11-15 14:47:26.765 28769  2140 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 14:47:27.767 28769  2140 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 14:47:28.769 28769  2140 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 14:47:29.629   849 16865 D VibratorManagerService: vibrate - uid: 10004, opPkg: dev.wearpointer.app, effect: Mono{mEffect=Composed{segments=[SemHaptic{mType=50038}], repeat=-1, mMagnitudeType=TYPE_EXTRA}}, attrs: VibrationAttributes{mUsage=TOUCH, mAudioUsage= USAGE_UNKNOWN, mFlags=0, tags=}, reason: performHapticFeedback(constant=3): ViewRootImpl#performHapticFeedback, token: com.android.server.vibrator.VibratorManagerService@2d29c9d
+11-15 14:47:29.630   849 16865 D VibratorManagerService: Check AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned audio=allow, op=allow
+11-15 14:47:29.630   849 16865 D VibratorManagerService: Start AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned allow
+11-15 14:47:29.756   849  1005 D VibratorManagerService: Finish AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app
+11-15 14:47:29.768 28769  2140 I wear-pointer: samples=100 accepted=102 completed=102 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
+11-15 14:47:30.455   849 16865 D VibratorManagerService: vibrate - uid: 10004, opPkg: dev.wearpointer.app, effect: Mono{mEffect=Composed{segments=[SemHaptic{mType=50038}], repeat=-1, mMagnitudeType=TYPE_EXTRA}}, attrs: VibrationAttributes{mUsage=TOUCH, mAudioUsage= USAGE_UNKNOWN, mFlags=0, tags=}, reason: performHapticFeedback(constant=3): ViewRootImpl#performHapticFeedback, token: com.android.server.vibrator.VibratorManagerService@2d29c9d
+11-15 14:47:30.457   849 16865 D VibratorManagerService: Check AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned audio=allow, op=allow
+11-15 14:47:30.457   849 16865 D VibratorManagerService: Start AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned allow
+11-15 14:47:30.474   849   873 V WindowManager: Relayout Window{8a0359 u0 dev.wearpointer.app/dev.wearpointer.MainActivity}: viewVisibility=0 req=480x480 ty=1 d0
+11-15 14:47:30.475   849   873 D PowerManagerService: [api] release WakeLock SCREEN_BRIGHT_WAKE_LOCK           'WindowManager/displayId:0' ON_AFTER_RELEASE ACQ=-13s137ms (uid=1000 pid=849 pkg=android ws=WorkSource{10004 dev.wearpointer.app} displayId=0 lock=8cdf1cc)
+11-15 14:47:30.475   849   873 D PowerManagerService: [api] applyWakeLockFlagsOnReleaseLocked : userActivityNoUpdateLocked is called : SCREEN_BRIGHT_WAKE_LOCK           'WindowManager/displayId:0' ON_AFTER_RELEASE DISABLED (uid=1000 pid=849 pkg=android ws=WorkSource{10004 dev.wearpointer.app} displayId=0 lock=8cdf1cc)
+11-15 14:47:30.588   849  1005 D VibratorManagerService: Finish AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app
+11-15 14:47:30.767 28769  2140 I wear-pointer: samples=100 accepted=71 completed=72 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
+11-15 14:47:31.160   849 16865 D VibratorManagerService: vibrate - uid: 10004, opPkg: dev.wearpointer.app, effect: Mono{mEffect=Composed{segments=[SemHaptic{mType=50038}], repeat=-1, mMagnitudeType=TYPE_EXTRA}}, attrs: VibrationAttributes{mUsage=TOUCH, mAudioUsage= USAGE_UNKNOWN, mFlags=0, tags=}, reason: performHapticFeedback(constant=3): ViewRootImpl#performHapticFeedback, token: com.android.server.vibrator.VibratorManagerService@2d29c9d
+11-15 14:47:31.161   849 16865 D VibratorManagerService: Check AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned audio=allow, op=allow
+11-15 14:47:31.161   849 16865 D VibratorManagerService: Start AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned allow
+11-15 14:47:31.184   849   873 V WindowManager: Relayout Window{8a0359 u0 dev.wearpointer.app/dev.wearpointer.MainActivity}: viewVisibility=0 req=480x480 ty=1 d0
+11-15 14:47:31.185   849   873 D PowerManagerService: [api] acquire WakeLock SCREEN_BRIGHT_WAKE_LOCK           'WindowManager/displayId:0' ON_AFTER_RELEASE (uid=1000 pid=849 pkg=android ws=WorkSource{10004 dev.wearpointer.app} displayId=0 lock=8cdf1cc)
+11-15 14:47:31.287   849  1005 D VibratorManagerService: Finish AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app
+11-15 14:47:31.778 28769  2140 I wear-pointer: samples=100 accepted=63 completed=62 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 14:47:32.783 28769  2140 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 14:47:32.878   849   873 D VibratorManagerService: vibrate - uid: 10004, opPkg: dev.wearpointer.app, effect: Mono{mEffect=Composed{segments=[SemHaptic{mType=50038}], repeat=-1, mMagnitudeType=TYPE_EXTRA}}, attrs: VibrationAttributes{mUsage=TOUCH, mAudioUsage= USAGE_UNKNOWN, mFlags=0, tags=}, reason: performHapticFeedback(constant=16): ViewRootImpl#performHapticFeedback, token: com.android.server.vibrator.VibratorManagerService@2d29c9d
+11-15 14:47:32.878 28769 28769 I wear-pointer: mode=TOUCH
+11-15 14:47:32.878   849   873 D VibratorManagerService: Check AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned audio=allow, op=allow
+11-15 14:47:32.878   849   873 D VibratorManagerService: Start AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned allow
+11-15 14:47:33.008   849  1005 D VibratorManagerService: Finish AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app
+11-15 14:47:33.781 28769  2140 I wear-pointer: samples=100 accepted=102 completed=102 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 14:47:34.553   849   873 D VibratorManagerService: vibrate - uid: 10004, opPkg: dev.wearpointer.app, effect: Mono{mEffect=Composed{segments=[SemHaptic{mType=50038}], repeat=-1, mMagnitudeType=TYPE_EXTRA}}, attrs: VibrationAttributes{mUsage=TOUCH, mAudioUsage= USAGE_UNKNOWN, mFlags=0, tags=}, reason: performHapticFeedback(constant=16): ViewRootImpl#performHapticFeedback, token: com.android.server.vibrator.VibratorManagerService@2d29c9d
+11-15 14:47:34.554   849   873 D VibratorManagerService: Check AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned audio=allow, op=allow
+11-15 14:47:34.554   849   873 D VibratorManagerService: Start AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned allow
+11-15 14:47:34.683   849  1005 D VibratorManagerService: Finish AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app
+11-15 14:47:34.784 28769  2140 I wear-pointer: samples=100 accepted=102 completed=102 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 14:47:35.784 28769  2140 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 14:47:36.787 28769  2140 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 14:47:37.798 28769  2140 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 14:47:38.343   849   873 D VibratorManagerService: vibrate - uid: 10004, opPkg: dev.wearpointer.app, effect: Mono{mEffect=Composed{segments=[SemHaptic{mType=50038}], repeat=-1, mMagnitudeType=TYPE_EXTRA}}, attrs: VibrationAttributes{mUsage=TOUCH, mAudioUsage= USAGE_UNKNOWN, mFlags=0, tags=}, reason: performHapticFeedback(constant=3): ViewRootImpl#performHapticFeedback, token: com.android.server.vibrator.VibratorManagerService@2d29c9d
+11-15 14:47:38.344   849   873 D VibratorManagerService: Check AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned audio=allow, op=allow
+11-15 14:47:38.344   849   873 D VibratorManagerService: Start AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned allow
+11-15 14:47:38.470   849  1005 D VibratorManagerService: Finish AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app
+11-15 14:47:38.796 28769  2140 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=1 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 14:47:39.296   849 16865 D VibratorManagerService: vibrate - uid: 10004, opPkg: dev.wearpointer.app, effect: Mono{mEffect=Composed{segments=[SemHaptic{mType=50038}], repeat=-1, mMagnitudeType=TYPE_EXTRA}}, attrs: VibrationAttributes{mUsage=TOUCH, mAudioUsage= USAGE_UNKNOWN, mFlags=0, tags=}, reason: performHapticFeedback(constant=0): ViewRootImpl#performHapticFeedback, token: com.android.server.vibrator.VibratorManagerService@2d29c9d
+11-15 14:47:39.297   849 16865 D VibratorManagerService: Check AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned audio=allow, op=allow
+11-15 14:47:39.297   849 16865 D VibratorManagerService: Start AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned allow
+11-15 14:47:39.424   849  1005 D VibratorManagerService: Finish AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app
+11-15 14:47:39.797 28769  2140 I wear-pointer: samples=100 accepted=102 completed=102 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 14:47:40.798 28769  2140 I wear-pointer: samples=100 accepted=102 completed=102 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 14:47:41.805 28769  2140 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 14:47:42.441 28769 28769 I wear-pointer: mode=ABSOLUTE
+11-15 14:47:42.442   849 16865 D VibratorManagerService: vibrate - uid: 10004, opPkg: dev.wearpointer.app, effect: Mono{mEffect=Composed{segments=[SemHaptic{mType=50038}], repeat=-1, mMagnitudeType=TYPE_EXTRA}}, attrs: VibrationAttributes{mUsage=TOUCH, mAudioUsage= USAGE_UNKNOWN, mFlags=0, tags=}, reason: performHapticFeedback(constant=16): ViewRootImpl#performHapticFeedback, token: com.android.server.vibrator.VibratorManagerService@2d29c9d
+11-15 14:47:42.442   849 16865 D VibratorManagerService: Check AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned audio=allow, op=allow
+11-15 14:47:42.443   849 16865 D VibratorManagerService: Start AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned allow
+11-15 14:47:42.569   849  1005 D VibratorManagerService: Finish AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app
+11-15 14:47:42.808 28769  2140 I wear-pointer: samples=100 accepted=102 completed=102 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 14:47:43.813 28769  2140 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 14:47:44.184   849  7092 W ForegroundServiceTypeLoggerModule: Logger should be tracking FGS types correctly for UID 10004 in package dev.wearpointer.app
+11-15 14:47:44.184   849  7092 W ForegroundServiceTypeLoggerModule: Logger should be tracking FGS types correctly for UID 10004 in package dev.wearpointer.app
+11-15 14:47:44.184   849  7092 W ForegroundServiceTypeLoggerModule: Logger should be tracking FGS types correctly for UID 10004 in package dev.wearpointer.app
+11-15 14:47:44.185  1277  7265 D RECENT  : FgServiceManager.java: onForegroundStateChanged(43) > dev.wearpointer.app 0 false
+11-15 14:47:44.185  1277  7265 W RECENT  : FgServiceManager.java: updateListWithItem(100) > dev.wearpointer.app : isPresent, Fg: false
+11-15 14:47:44.185  1277  7265 W RECENT  : FgServiceManager.java: updateListWithItem(122) > dev.wearpointer.app : removed, Fg: false
+11-15 14:47:44.191 28769  2140 D BluetoothLeAdvertiser: stopAdvertisingSet() called by dev.wearpointer.app (android.bluetooth.le.BluetoothLeAdvertiser$1@1f4da31)
+11-15 14:47:44.192   849 17178 V WindowManager: Relayout Window{8a0359 u0 dev.wearpointer.app/dev.wearpointer.MainActivity}: viewVisibility=0 req=480x480 ty=1 d0
+11-15 14:47:44.192   849 17178 D PowerManagerService: [api] release WakeLock SCREEN_BRIGHT_WAKE_LOCK           'WindowManager/displayId:0' ON_AFTER_RELEASE ACQ=-13s6ms (uid=1000 pid=849 pkg=android ws=WorkSource{10004 dev.wearpointer.app} displayId=0 lock=8cdf1cc)
+11-15 14:47:44.193   849 17178 D PowerManagerService: [api] applyWakeLockFlagsOnReleaseLocked : userActivityNoUpdateLocked is called : SCREEN_BRIGHT_WAKE_LOCK           'WindowManager/displayId:0' ON_AFTER_RELEASE DISABLED (uid=1000 pid=849 pkg=android ws=WorkSource{10004 dev.wearpointer.app} displayId=0 lock=8cdf1cc)
+11-15 14:47:44.197  1176  1176 D WearServices: [StreamTimeline]Add NFN_LISTENER_NOTIFICATION_REMOVED dev.wearpointer.app
+11-15 14:47:44.202  1176  1176 D WearServices: [NotificationCollector]onNotificationRemoved StatusBarNotification(pkg=dev.wearpointer.app user=UserHandle{0} id=1 tag=null key=0|dev.wearpointer.app|1|null|10004: Notification(channel=wear-pointer shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONGOING_EVENT|NO_CLEAR|FOREGROUND_SERVICE color=0x00000000 actions=1 vis=PRIVATE))
+11-15 14:47:44.203  1176 15612 D WearServices: [StreamTimeline]Add STREAM_CANCEL StreamItemId{notificationSource=0, profile=null, packageHash=-6885011857330224847, id=1, tagHash=0, packageName=dev.wearpointer.app, tag=null, notificationKey=0|dev.wearpointer.app|1|null|10004} SBN removed: StreamItemIdAndRevision{streamItemId=StreamItemId{notificationSource=0, profile=null, packageHash=-6885011857330224847, id=1, tagHash=0, packageName=dev.wearpointer.app, tag=null, notificationKey=0|dev.wearpointer.app|1|null|10004}, revision=-1, originalRevision=-1, updateCount=0}
+11-15 14:47:44.203  1176 15612 D WearServices: [WatchStreamManager]Promised remove @ r#840209 for StreamItemIdAndRevision{streamItemId=StreamItemId{notificationSource=0, profile=null, packageHash=-6885011857330224847, id=1, tagHash=0, packageName=dev.wearpointer.app, tag=null, notificationKey=0|dev.wearpointer.app|1|null|10004}, revision=-1, originalRevision=-1, updateCount=0} (@840208): SBN removed: StreamItemIdAndRevision{streamItemId=StreamItemId{notificationSource=0, profile=null, packageHash=-6885011857330224847, id=1, tagHash=0, packageName=dev.wearpointer.app, tag=null, notificationKey=0|dev.wearpointer.app|1|null|10004}, revision=-1, originalRevision=-1, updateCount=0}
+11-15 14:47:44.203  1176 31572 D WearServices: [WatchStreamDB]remove. itemId: StreamItemIdAndRevision{streamItemId=StreamItemId{notificationSource=0, profile=null, packageHash=-6885011857330224847, id=1, tagHash=0, packageName=dev.wearpointer.app, tag=null, notificationKey=0|dev.wearpointer.app|1|null|10004}, revision=840208, originalRevision=840208, updateCount=0}
+11-15 14:47:44.204  1176 31572 D WearServices: [NotificationStatsWriter]writeAtom WS_NOTIFICATION_UPDATED: NotificationUpdateAtom{packageName=dev.wearpointer.app, updateAction=3, sourceDevice=3, importance=4, transportChannel=0, alertingEffect=3, groupAlertBehavior=1, alertOnlyOnce=1, groupType=1, style=1, hiddenReason=1, category=1, isOngoingNotification=true, isForegroundService=true, isEmergency=false, isWorkProfile=false, contentIntent=1, hasRemoteInput=false, actionCount=1, hasBigImages=false, hasDismissalId=false, isPromotedOngoing=false, hasPromotableCharacteristics=false}
+11-15 14:47:44.213 29194 29309 W WNoti   : [WNotiDataConverter] remove(92) > ID{[840208/840208], packageName=dev.wearpointer.app}
+11-15 14:47:44.214 29194 29309 I WNoti   : [SecLauncherControllerImpl$$ExternalSyntheticOutline0] m(8) > PanelId=DefaultPanelId{packageName=dev.wearpointer.app, userId=0, isLocal=true}, id=StreamItemIdAndRevision{notifKey=0|dev.wearpointer.app|1|null|10004, packageName=dev.wearpointer.app, id=1, revision=840208, originalRevision=840208, updateCount=0}, detailActivity=NEQ, alertActivity=NEQ
+11-15 14:47:44.220  1176 15612 D WearServices: [StreamTimeline]Add STREAM_DISMISS_MULTIPLE StreamItemId{notificationSource=0, profile=null, packageHash=-6885011857330224847, id=1, tagHash=0, packageName=dev.wearpointer.app, tag=null, notificationKey=0|dev.wearpointer.app|1|null|10004} null
+11-15 14:47:44.221  1176 31572 W WearServices: [WatchStreamDB]dismissMultipleFromUi [reason = 2] failed: item not found with ID: StreamItemIdAndRevision{streamItemId=StreamItemId{notificationSource=0, profile=null, packageHash=-6885011857330224847, id=1, tagHash=0, packageName=dev.wearpointer.app, tag=null, notificationKey=0|dev.wearpointer.app|1|null|10004}, revision=840208, originalRevision=840208, updateCount=0}
+11-15 14:47:44.893   387   387 D io_stats: !@ Write_top(KB): wearpointer.app(28769) 8
+11-15 14:47:45.866   849 17178 I ActivityManager: Background started FGS: Allowed [callingPackage: dev.wearpointer.app; callingUid: 10004; uidState: TOP ; uidBFSL: [BFSL]; intent: Intent { xflg=0x4 cmp=dev.wearpointer.app/dev.wearpointer.PointerService }; code:PROC_STATE_TOP; tempAllowListReason:<null>; allowWiu:12; targetSdkVersion:35; callerTargetSdkVersion:35; startForegroundCount:0; bindFromPackage:null: isBindService:false]
+11-15 14:47:45.885  1277  7265 D RECENT  : FgServiceManager.java: onForegroundStateChanged(43) > dev.wearpointer.app 0 true
+11-15 14:47:45.892  1277  7265 D RECENT  : FgServiceManager.java: updateUiControlForFgServices(194) > dev.wearpointer.app 10004 -1 NORMAL_ENTRY
+11-15 14:47:45.893  1277  7265 W RECENT  : FgServiceManager.java: updateListWithItem(118) > dev.wearpointer.app : added, Fg: true
+11-15 14:47:45.901 28769  2504 I wear-pointer: sensors registered at 100 Hz request
+11-15 14:47:45.919 28769  2504 I wear-pointer: samples=1 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=2103
+11-15 14:47:45.925 28769  2504 D BluetoothLeAdvertiser: startAdvertisingSet() called by dev.wearpointer.app
+11-15 14:47:45.943 28769 28769 I wear-pointer: advertising started
+11-15 14:47:45.943 28769 28769 I wear-pointer: Advertising
+11-15 14:47:45.943  1176  1176 D WearServices: [StreamTimeline]Add NFN_LISTENER_NOTIFICATION_POSTED dev.wearpointer.app
+11-15 14:47:45.943  1176  1176 D WearServices: [NotificationCollector]onNotificationPosted StatusBarNotification(pkg=dev.wearpointer.app user=UserHandle{0} id=1 tag=null key=0|dev.wearpointer.app|1|null|10004: Notification(channel=wear-pointer shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONGOING_EVENT|NO_CLEAR|FOREGROUND_SERVICE color=0x00000000 actions=1 vis=PRIVATE))
+11-15 14:47:45.946  1176  1260 D WearServices: [StreamManagerCollectorListener]Posting local notification: AutoValue_StreamItemData{hidden=0, localPackageName=dev.wearpointer.app, tag=null, flags=98, isOngoing=true, isNotClearable=true, onlyAlertOnce=false, notificationSource=1, userId=0, isWorkProfile=false, appName=Wear Pointer, priority=0, category=null, group=null, group=null, groupKey=null, hasGroupSummary=false, sortKey=, getChannel=com.google.wear.services.notification.channel.Channel@354cc42b, postTime=1794725265888, originalPostTime=1794725265888, lastPostedAsInterruptiveTime=0, shouldVibrate=false, vibrationPattern=null, hasSound=false, hasAlreadyShown=false, groupAlertBehavior=0, alertParams=null, isMediaNotification=false, displayName[hashed0Chars]=null, conversationTitle[hashed0Chars]=null, messagesSize=0, isGroupConversation=false, textLinesSize=0, bigText[hashed0Chars]=null, bigTitle[hashed0Chars]=null, summaryText[hashed0Chars]=null, title[hashed8Chars]=d463eefc, ticker[hashed0Chars]=0, contentText[hashed8Chars]=d71954f6, subText[hashed0Chars]=null, color=0, peopleSize=0, hasBigPicture=false, hasLargeIcon=false, hasAppIcon=true, supplementalBitmapKeysSize=0, actionsCount=1, bridgedContentIntent[present]=false, bridgedContentIntentId[present]=false, fullScreenIntent=null, localOnly=false, isEmergency=false, startScrollBottom=false, doesContentIntentLaunchActivity=false, contentActionIndex=-1, wearableActionsCount=0, bridgeTag=null, dismissalId=null, filteringData=FilteringData{originalPackageName=dev.wearpointer.app, isMediaStyle=false, tag=null, channelId=wear-pointer, isEmptyNotification=false, isClockworkForegroundService=false, isFrameworksForegroundNotification=false, hasInvalidWearableExtender=false, isFromAppHandlingMissedCallNotification=false, isFromDefaultSmsApp=false, isEmptySettingsNotification=false, dismissalId=null, isOngoingActivityStyle=false}, remoteStreamItemId=null, remoteNodeId=null, originalPackageName=dev.wearpointer.app, isMediaStyle=false, styleName=null, hasPromotableCharacteristics=false, getContentViews=null, getBigContentViews=null, getMediaSessionBundle=Bundle[{com.google.wear.services.notification.media_session_bundle=null}]}
+11-15 14:47:45.946  1176 15612 D WearServices: [StreamTimeline]Add STREAM_POST StreamItemId{notificationSource=0, profile=null, packageHash=-6885011857330224847, id=1, tagHash=0, packageName=dev.wearpointer.app, tag=null, notificationKey=0|dev.wearpointer.app|1|null|10004} null
+11-15 14:47:45.947  1176 15612 D WearServices: [WatchStreamManager]Promised set @ r#840211 for (dev.wearpointer.app,tag=null,id=1)
+11-15 14:47:45.948  1176 31572 D WearServices: [MutedApps]NotificationTimeTracker - updateLastNotificationTime: {packageName: dev.wearpointer.app, time: 1794725265888}
+11-15 14:47:45.948  1176 31572 D WearServices: [NotificationStatsWriter]writeAtom WS_NOTIFICATION_UPDATED: NotificationUpdateAtom{packageName=dev.wearpointer.app, updateAction=1, sourceDevice=3, importance=4, transportChannel=0, alertingEffect=3, groupAlertBehavior=1, alertOnlyOnce=1, groupType=1, style=1, hiddenReason=1, category=1, isOngoingNotification=true, isForegroundService=true, isEmergency=false, isWorkProfile=false, contentIntent=1, hasRemoteInput=false, actionCount=1, hasBigImages=false, hasDismissalId=false, isPromotedOngoing=false, hasPromotableCharacteristics=false}
+11-15 14:47:45.948  1176 31572 D WearServices: [NotificationStatsWriter]writeAtom WS_NOTIFICATION_LATENCY: {packageName=dev.wearpointer.app, sourceDevice=3, notificationComponentFlow=1, componentName=1, durationMillis=3}
+11-15 14:47:45.948  1176 31572 D WearServices: [NotificationStatsWriter]writeAtom WS_NOTIFICATION_LATENCY: {packageName=dev.wearpointer.app, sourceDevice=3, notificationComponentFlow=1, componentName=4, durationMillis=57}
+11-15 14:47:45.951 29194 26091 W SysUI   : [WearSdkAlertingProcessor]Not alerting: Device is off-body, item id: StreamItemIdAndRevision{notifKey=0|dev.wearpointer.app|1|null|10004, packageName=dev.wearpointer.app, id=1, revision=840211, originalRevision=840211, updateCount=0}
+11-15 14:47:45.953 29194 29309 W WNoti   : [WNotiDataConverter] addStreamItem(159) > [Noti]StreamItemData{[840211/840211/Child/Local], originalPackageName=dev.wearpointer.app, group=null, contentTitle=(12chars), bigTitle=null, conversationTitle=null, contentText=(9chars), bigText=null, summaryText=null, subText=null, tickerText=(0chars), isOngoing=true, flag=98, when=1794725265876, postTime=1794725265888, originalPostTime=1794725265888, autoCancel=false, groupAlertBehavior=0, color=0, channel=wear-pointer}
+11-15 14:47:45.953 29194 29309 I WNoti   : [WNotiBlockAppHandler] isBlockedNotification(163) > There is no allowed [dev.wearpointer.app] in allowedMobileAppHashMap, have to return defaultChannelsConfig block state of watch.
+11-15 14:47:45.956 29194 29309 I WNoti   : [LauncherAppsWrapperImpl$PackageChangeCallback$$ExternalSyntheticOutline0] m(13) > Not found a corresponding phone allowed app: dev.wearpointer.app
+11-15 14:47:45.956 29194 29309 I WNoti   : [WcsExtNotificationBackend] sendMessage(10) > send message: {"msgId":"notification_history_from_watch","packageName":"dev.wearpointer.app","receivedTime":1794725265888}, path: bridge
+11-15 14:47:45.957  2035  2078 I WCSExt[1.0]: [NotificationApiStub] sendNotificationMessage : {"msgId":"notification_history_from_watch","packageName":"dev.wearpointer.app","receivedTime":1794725265888}
+11-15 14:47:45.963 29194 29309 W WNoti   : [NotiConverter$$ExternalSyntheticLambda0] run(65) > -----> [840211/840211/Child/Popup:X] DefaultPanelId{packageName=dev.wearpointer.app, userId=0, isLocal=true}
+11-15 14:47:45.963 29194 29309 I WNoti   : [WNotiVspPanel] addElement(558) > PanelId=DefaultPanelId{packageName=dev.wearpointer.app, userId=0, isLocal=true}, id=StreamItemIdAndRevision{notifKey=0|dev.wearpointer.app|1|null|10004, packageName=dev.wearpointer.app, id=1, revision=840211, originalRevision=840211, updateCount=0}, detail=false, groupSummaryDetail=false
+11-15 14:47:46.919 28769  2504 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 14:47:47.855 28769  1672 I wear-pointer: connection 44:F7:9F:E5:2F:8C state=2 status=0
+11-15 14:47:47.920 28769  2504 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 14:47:48.926 28769  2504 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
+11-15 14:47:49.928 28769  2504 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
+11-15 14:47:50.018  1279  1445 I gatt_api: system/stack/gatt/gatt_api.cc:1272 GATT_Register: Allocated name:dev.wearpointer.app uuid:6846f7fc-afec-545d-dcbc-fb1c8ee50695 gatt_if:159 eatt_support:false
+11-15 14:47:50.018 28769  2504 I wear-pointer: notify on for 44:F7:9F:E5:2F:8C
+11-15 14:47:50.029 28769  2504 I wear-pointer: Connected
+11-15 14:47:50.047   849  7418 V WindowManager: Relayout Window{8a0359 u0 dev.wearpointer.app/dev.wearpointer.MainActivity}: viewVisibility=0 req=480x480 ty=1 d0
+11-15 14:47:50.061   849  7418 D PowerManagerService: [api] acquire WakeLock SCREEN_BRIGHT_WAKE_LOCK           'WindowManager/displayId:0' ON_AFTER_RELEASE (uid=1000 pid=849 pkg=android ws=WorkSource{10004 dev.wearpointer.app} displayId=0 lock=8cdf1cc)
+11-15 14:47:50.065 28769  1672 I wear-pointer: requested CONNECTION_PRIORITY_HIGH for 44:F7:9F:E5:2F:8C: true
+11-15 14:47:50.930 28769  2504 I wear-pointer: samples=100 accepted=89 completed=88 rejected=0 coalesced=6 notReady=0 gyroGapsOver50ms=0 windowMs=1001
+11-15 14:47:51.045   849 17847 D VibratorManagerService: vibrate - uid: 10004, opPkg: dev.wearpointer.app, effect: Mono{mEffect=Composed{segments=[SemHaptic{mType=50038}], repeat=-1, mMagnitudeType=TYPE_EXTRA}}, attrs: VibrationAttributes{mUsage=TOUCH, mAudioUsage= USAGE_UNKNOWN, mFlags=0, tags=}, reason: performHapticFeedback(constant=16): ViewRootImpl#performHapticFeedback, token: com.android.server.vibrator.VibratorManagerService@2d29c9d
+11-15 14:47:51.045   849 17847 D VibratorManagerService: Check AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned audio=allow, op=allow
+11-15 14:47:51.047   849 17847 D VibratorManagerService: Start AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned allow
+11-15 14:47:51.175   849  1005 D VibratorManagerService: Finish AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app
+11-15 14:47:51.650   849 17847 D VibratorManagerService: vibrate - uid: 10004, opPkg: dev.wearpointer.app, effect: Mono{mEffect=Composed{segments=[SemHaptic{mType=50038}], repeat=-1, mMagnitudeType=TYPE_EXTRA}}, attrs: VibrationAttributes{mUsage=TOUCH, mAudioUsage= USAGE_UNKNOWN, mFlags=0, tags=}, reason: performHapticFeedback(constant=3): ViewRootImpl#performHapticFeedback, token: com.android.server.vibrator.VibratorManagerService@2d29c9d
+11-15 14:47:51.651   849 17847 D VibratorManagerService: Check AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned audio=allow, op=allow
+11-15 14:47:51.651   849 17847 D VibratorManagerService: Start AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app returned allow
+11-15 14:47:51.777   849  1005 D VibratorManagerService: Finish AppOp mode VIBRATE for uid 10004 and package dev.wearpointer.app
+11-15 14:47:51.933 28769  2504 I wear-pointer: samples=100 accepted=102 completed=102 rejected=0 coalesced=4 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 14:47:52.936 28769  2504 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1001
+11-15 14:47:53.936 28769  2504 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 14:47:54.375 28769  2504 I wear-pointer: notify off for 44:F7:9F:E5:2F:8C
+11-15 14:47:54.400   849 16865 V WindowManager: Relayout Window{8a0359 u0 dev.wearpointer.app/dev.wearpointer.MainActivity}: viewVisibility=0 req=480x480 ty=1 d0
+11-15 14:47:54.404   849 16865 D PowerManagerService: [api] release WakeLock SCREEN_BRIGHT_WAKE_LOCK           'WindowManager/displayId:0' ON_AFTER_RELEASE ACQ=-4s342ms (uid=1000 pid=849 pkg=android ws=WorkSource{10004 dev.wearpointer.app} displayId=0 lock=8cdf1cc)
+11-15 14:47:54.405   849 16865 D PowerManagerService: [api] applyWakeLockFlagsOnReleaseLocked : userActivityNoUpdateLocked is called : SCREEN_BRIGHT_WAKE_LOCK           'WindowManager/displayId:0' ON_AFTER_RELEASE DISABLED (uid=1000 pid=849 pkg=android ws=WorkSource{10004 dev.wearpointer.app} displayId=0 lock=8cdf1cc)
+11-15 14:47:54.939 28769  2504 I wear-pointer: samples=100 accepted=43 completed=43 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 14:47:55.065 28769 28902 I wear-pointer: connection 44:F7:9F:E5:2F:8C state=0 status=0
+11-15 14:47:55.068 28769  2504 D BluetoothLeAdvertiser: stopAdvertisingSet() called by dev.wearpointer.app (android.bluetooth.le.BluetoothLeAdvertiser$1@60fb6a1)
+11-15 14:47:55.096 28769  2504 D BluetoothLeAdvertiser: startAdvertisingSet() called by dev.wearpointer.app
+11-15 14:47:55.238 28769 28769 I wear-pointer: advertising started
+11-15 14:47:55.238 28769 28769 I wear-pointer: Advertising

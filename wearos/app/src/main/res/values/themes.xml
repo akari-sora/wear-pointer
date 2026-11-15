@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Swipe-to-dismiss is off: the touchpad mode reads horizontal finger slides,
+        and a slide from the left edge must not close the app. Leave with the
+        watch's Back / Home key.
+    -->
+    <style name="Theme.WearPointer" parent="@android:style/Theme.DeviceDefault">
+        <item name="android:windowSwipeToDismiss">false</item>
+    </style>
+</resources>

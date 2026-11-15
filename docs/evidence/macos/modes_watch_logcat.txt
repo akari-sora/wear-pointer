@@ -1,0 +1,54 @@
+11-15 11:49:49.291 25889 25923 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 11:49:50.308 25889 25923 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:49:51.299 25889 25923 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:49:52.300 25889 25923 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 11:49:53.307 25889 25923 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 11:49:54.305 25889 25923 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 11:49:55.314 25889 25923 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 11:49:56.321 25889 25923 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 11:49:56.662 25889 25901 I wear-pointer: connection 84:2F:57:00:73:17 state=2 status=0
+11-15 11:49:57.326 25889 25923 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 11:49:58.334 25889 25923 I wear-pointer: samples=100 accepted=0 completed=0 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 11:49:58.479 25889 25923 I wear-pointer: notify on for 84:2F:57:00:73:17
+11-15 11:49:58.493 25889 25923 I wear-pointer: Connected
+11-15 11:49:58.535 25889 25901 I wear-pointer: requested CONNECTION_PRIORITY_HIGH for 84:2F:57:00:73:17: true
+11-15 11:49:59.323 25889 25923 I wear-pointer: samples=100 accepted=80 completed=79 rejected=0 coalesced=9 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 11:50:00.323 25889 25923 I wear-pointer: samples=100 accepted=104 completed=104 rejected=0 coalesced=1 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:01.328 25889 25923 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:01.854 25889 25889 I wear-pointer: mode=AIR
+11-15 11:50:02.336 25889 25923 I wear-pointer: samples=100 accepted=102 completed=102 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:03.341 25889 25923 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:04.337 25889 25923 I wear-pointer: samples=100 accepted=100 completed=100 rejected=0 coalesced=1 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:05.349 25889 25923 I wear-pointer: samples=100 accepted=102 completed=102 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:06.356 25889 25923 I wear-pointer: samples=100 accepted=100 completed=100 rejected=0 coalesced=1 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:07.352 25889 25923 I wear-pointer: samples=100 accepted=99 completed=99 rejected=0 coalesced=2 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:08.357 25889 25923 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:09.357 25889 25923 I wear-pointer: samples=100 accepted=100 completed=100 rejected=0 coalesced=1 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 11:50:10.358 25889 25923 I wear-pointer: samples=100 accepted=102 completed=102 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 11:50:11.359 25889 25923 I wear-pointer: samples=100 accepted=30 completed=30 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:12.360 25889 25923 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:13.368 25889 25923 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 11:50:13.438 25889 25889 I wear-pointer: mode=TOUCH
+11-15 11:50:14.368 25889 25923 I wear-pointer: samples=100 accepted=102 completed=102 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:15.377 25889 25923 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1004
+11-15 11:50:16.377 25889 25923 I wear-pointer: samples=100 accepted=102 completed=102 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1004
+11-15 11:50:17.379 25889 25923 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:18.386 25889 25923 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:19.391 25889 25923 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:20.392 25889 25923 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:21.398 25889 25923 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 11:50:22.403 25889 25923 I wear-pointer: samples=100 accepted=102 completed=102 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:23.401 25889 25923 I wear-pointer: samples=100 accepted=102 completed=102 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:24.405 25889 25923 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:25.408 25889 25923 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=1 notReady=0 gyroGapsOver50ms=0 windowMs=1004
+11-15 11:50:26.411 25889 25923 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:27.418 25889 25923 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:28.421 25889 25923 I wear-pointer: samples=100 accepted=102 completed=102 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:29.424 25889 25923 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:29.492 25889 25889 I wear-pointer: mode=ABSOLUTE
+11-15 11:50:30.429 25889 25923 I wear-pointer: samples=100 accepted=102 completed=102 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:31.435 25889 25923 I wear-pointer: samples=100 accepted=101 completed=101 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1003
+11-15 11:50:32.438 25889 25923 I wear-pointer: samples=100 accepted=102 completed=102 rejected=0 coalesced=0 notReady=0 gyroGapsOver50ms=0 windowMs=1002
+11-15 11:50:32.535 25889 25901 I wear-pointer: connection 84:2F:57:00:73:17 state=0 status=0
+11-15 11:50:32.683 25889 25889 I wear-pointer: advertising started
+11-15 11:50:32.683 25889 25889 I wear-pointer: Advertising

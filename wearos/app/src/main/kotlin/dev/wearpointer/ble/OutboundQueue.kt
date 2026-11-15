@@ -62,6 +62,18 @@ class OutboundQueue {
     fun enqueue(packet: ByteArray): Transmit {
         when (kind(packet)) {
             Packets.KIND_AIM -> enqueueAim(packet)
+            // Cumulative finger travel: replacing a queued tail sample loses nothing.
+            Packets.KIND_TOUCH -> {
+                dropTrailingKind(Packets.KIND_TOUCH)
+                waiting.addLast(packet)
+            }
+            // A new pointing model is a calibration boundary, like Center.
+            Packets.KIND_MODE -> {
+                dropTrailingAim()
+                dropTrailingKind(Packets.KIND_TOUCH)
+                dropTrailingKind(Packets.KIND_MODE)
+                waiting.addLast(packet)
+            }
             Packets.KIND_SENSITIVITY -> {
                 dropTrailingKind(Packets.KIND_SENSITIVITY)
                 waiting.addLast(packet)
@@ -105,7 +117,9 @@ class OutboundQueue {
         } else {
             rejected++
             val k = kind(packet)
-            if (k != Packets.KIND_AIM && k != Packets.KIND_STATS && k != Packets.KIND_SENSITIVITY) {
+            if (k != Packets.KIND_AIM && k != Packets.KIND_TOUCH && k != Packets.KIND_STATS &&
+                k != Packets.KIND_SENSITIVITY && k != Packets.KIND_MODE
+            ) {
                 abandon()
                 return Transmit.DropLink
             }
@@ -140,9 +154,9 @@ class OutboundQueue {
         return snapshot
     }
 
-    fun queuedCritical(): Int = waiting.count { kind(it) != Packets.KIND_AIM }
+    fun queuedCritical(): Int = waiting.count { kind(it) != Packets.KIND_AIM && kind(it) != Packets.KIND_TOUCH }
 
-    fun hasPendingAim(): Boolean = waiting.any { kind(it) == Packets.KIND_AIM }
+    fun hasPendingAim(): Boolean = waiting.any { kind(it) == Packets.KIND_AIM || kind(it) == Packets.KIND_TOUCH }
 
     fun isBusy(): Boolean = inFlight != null
 

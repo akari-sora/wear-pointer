@@ -27,6 +27,24 @@ class OutboundQueueTest {
     }
 
     @Test
+    fun touchSamplesCoalesceAndAModeSwitchDropsTheStaleTail() {
+        val queue = OutboundQueue()
+        send(queue.enqueue(Packets.touch(0, 0, 0, 0, true)))
+        queue.enqueue(Packets.touch(0, 0, 100, 0, true))
+        queue.enqueue(Packets.touch(0, 0, 250, 0, true))
+        val next = send(queue.onFinished(success = true))
+        assertEquals(Packets.KIND_TOUCH, kind(next))
+        // Cumulative travel: only the newest sample matters.
+        assertEquals(250, leftCdeg(next))
+        assertEquals(1, queue.takeCounters().coalesced)
+        // A failed touch is not fatal (like aim).
+        queue.enqueue(Packets.aim(0, 0, 5, 0))
+        queue.enqueue(Packets.mode(0, 0, Packets.MODE_AIR))
+        assertEquals(Packets.KIND_MODE, kind(send(queue.onFinished(success = false))))
+        assertTrue(queue.onFinished(success = true) is OutboundQueue.Transmit.Idle)
+    }
+
+    @Test
     fun dragUpIsNotReplacedByAimTraffic() {
         val queue = OutboundQueue()
         send(queue.enqueue(Packets.aim(0, 0, 0, 0)))

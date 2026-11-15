@@ -1,39 +1,42 @@
-# start_unix 1794708529.108620
-3.579974 connected 1 SM-L310 (hci0/dev_7C_EB_EF_F3_15_96)
-4.007028 rx 1 010600009c65dd506401e603534d2d4c333130
-4.007039 rx 1 010901003a85dd504006
-4.055629 rx 1 01000200a3c9dd50ed000000
-4.059136 move 817.9 600.0
-4.055637 rx 1 01000300e817de50ed000000
-4.055641 rx 1 010004004d66de50ed00feff
-4.057476 rx 1 01000500748dde50ed00feff
-4.057481 rx 1 0100060097b4de50ed00feff
-4.057554 rx 1 01000700bfdbde50ed00ffff
-4.059170 move 817.9 600.1
-4.063286 move 817.9 600.2
-4.104672 rx 1 01000800e002df50ed00ffff
-4.104679 rx 1 01000900052adf50ed00ffff
-# --- non-move actions, live DPI updates, and link epochs ---
-# start_unix 1794708529.108620
-3.579974 connected 1 SM-L310 (hci0/dev_7C_EB_EF_F3_15_96)
-7.171663 button Left down
-7.171670 button Left up
-7.788322 button Left down
-7.788328 button Left up
-8.792505 button Left down
-9.271657 button Left up
-9.992476 button Right down
-9.992480 button Right up
-10.609131 scroll -272
-11.013289 scroll -272
-11.388294 scroll 272
-11.763287 scroll 272
-13.204955 dpi 1800
-13.713282 dpi 2000
-14.225782 dpi 2400
-15.213285 dpi 2200
-15.738291 dpi 1600
-23.300781 disconnected 1 device disconnected
-37.896615 connected 3 watch (hci0/dev_7E_48_E1_CD_D5_32)
-42.121680 disconnected 3 shutdown
-# total_rx=2022 total_moves=1461
+# start_unix 1794725233.712602
+2.975908 connected 1 SM-L310 (hci0/dev_43_EE_E5_4D_F0_00)
+3.404501 rx 1 0106000024f07f346401e703534d2d4c333130
+3.404506 rx 1 010901007b0180344006
+3.404508 rx 1 010a02000b02803400
+3.404512 rx 1 01000300137680340500feff
+3.405113 move 638.0 400.8
+3.407438 rx 1 010004006f9e80340600fdff
+3.407444 rx 1 010005005bc480340600fdff
+3.407448 rx 1 010006007feb80340600fdff
+3.409226 move 638.0 400.8
+3.453461 rx 1 01000700a01281340600fdff
+3.453477 rx 1 01000800be3981340600feff
+3.453481 rx 1 01000900dd6081340600fdff
+3.455086 move 637.9 400.9
+# --- non-move actions, mode switches, live DPI updates, and link epochs ---
+# start_unix 1794725233.712602
+2.975908 connected 1 SM-L310 (hci0/dev_43_EE_E5_4D_F0_00)
+5.813436 button Left down
+5.813440 button Left up
+6.338434 button Right down
+6.338439 button Right up
+6.938416 scroll -272
+7.342592 scroll 272
+8.692586 dpi 1800
+9.125927 dpi 2000
+9.580085 dpi 1600
+9.996746 mode air
+15.650935 button Left down
+15.650939 button Left up
+18.909221 mode touch
+24.384234 button Left down
+24.384236 button Left up
+25.325939 button Left down
+26.709236 button Left up
+28.475913 mode absolute
+31.705077 disconnected 1 device disconnected
+35.667577 connected 2 watch (hci0/dev_6D_66_C6_A1_58_DD)
+37.675921 button Left down
+37.675925 button Left up
+38.342644 disconnected 2 shutdown
+# total_rx=2886 total_moves=746

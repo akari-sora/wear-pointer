@@ -27,6 +27,13 @@ pub const KIND_INFO: u8 = 6;
 pub const KIND_DRAG: u8 = 7;
 pub const KIND_STATS: u8 = 8;
 pub const KIND_SENSITIVITY: u8 = 9;
+pub const KIND_MODE: u8 = 10;
+pub const KIND_TOUCH: u8 = 11;
+
+/// `Mode` packet values. Unknown values fall back to absolute.
+pub const MODE_ABSOLUTE: u8 = 0;
+pub const MODE_AIR: u8 = 1;
+pub const MODE_TOUCH: u8 = 2;
 
 pub const CONTROL_REQUEST_STATS: u8 = 0x01;
 
@@ -84,6 +91,20 @@ pub enum Packet {
         header: Header,
         dpi: u16,
     },
+    /// Pointing model chosen on the watch (`MODE_*`).
+    Mode {
+        header: Header,
+        mode: u8,
+    },
+    /// Watch-screen touchpad. `x_acc` / `y_acc` are cumulative finger travel in
+    /// hundredths of a millimetre, wrapping at 16 bits, so a coalesced or lost
+    /// packet loses no motion: the receiver takes `wrapping_sub` differences.
+    Touch {
+        header: Header,
+        x_acc: i16,
+        y_acc: i16,
+        down: bool,
+    },
     Unknown {
         header: Header,
     },
@@ -102,6 +123,8 @@ impl Packet {
             | Packet::Drag { header, .. }
             | Packet::Stats { header, .. }
             | Packet::Sensitivity { header, .. }
+            | Packet::Mode { header, .. }
+            | Packet::Touch { header, .. }
             | Packet::Unknown { header } => header,
         }
     }
@@ -171,6 +194,14 @@ pub fn encode(packet: &Packet) -> Vec<u8> {
         }
         Packet::Sensitivity { dpi, .. } => {
             out.extend_from_slice(&dpi.to_le_bytes());
+        }
+        Packet::Mode { mode, .. } => out.push(*mode),
+        Packet::Touch {
+            x_acc, y_acc, down, ..
+        } => {
+            out.extend_from_slice(&x_acc.to_le_bytes());
+            out.extend_from_slice(&y_acc.to_le_bytes());
+            out.push(u8::from(*down));
         }
         Packet::LeftClick { .. } | Packet::RightClick { .. } | Packet::Center { .. } => {}
         Packet::Unknown { .. } => {}
@@ -265,6 +296,22 @@ pub fn decode(bytes: &[u8]) -> Result<Packet, PacketError> {
                 dpi: u16::from_le_bytes([bytes[8], bytes[9]]),
             }
         }
+        KIND_MODE => {
+            need(9)?;
+            Packet::Mode {
+                header,
+                mode: bytes[8],
+            }
+        }
+        KIND_TOUCH => {
+            need(13)?;
+            Packet::Touch {
+                header,
+                x_acc: i16::from_le_bytes([bytes[8], bytes[9]]),
+                y_acc: i16::from_le_bytes([bytes[10], bytes[11]]),
+                down: bytes[12] & 0x01 != 0,
+            }
+        }
         _ => Packet::Unknown { header },
     })
 }
@@ -333,6 +380,11 @@ mod tests {
         assert_eq!(json["kinds"]["aim"], KIND_AIM);
         assert_eq!(json["kinds"]["stats"], KIND_STATS);
         assert_eq!(json["kinds"]["sensitivity"], KIND_SENSITIVITY);
+        assert_eq!(json["kinds"]["mode"], KIND_MODE);
+        assert_eq!(json["kinds"]["touch"], KIND_TOUCH);
+        assert_eq!(json["modes"]["absolute"], MODE_ABSOLUTE);
+        assert_eq!(json["modes"]["air"], MODE_AIR);
+        assert_eq!(json["modes"]["touch"], MODE_TOUCH);
         assert_eq!(
             json["control_commands"]["request_stats"],
             CONTROL_REQUEST_STATS
@@ -381,6 +433,16 @@ mod tests {
                 header: header(KIND_SENSITIVITY, 10, 13),
                 dpi: 1600,
             },
+            Packet::Mode {
+                header: header(KIND_MODE, 11, 14),
+                mode: MODE_AIR,
+            },
+            Packet::Touch {
+                header: header(KIND_TOUCH, 12, 15),
+                x_acc: -1234,
+                y_acc: 32000,
+                down: true,
+            },
         ];
         for packet in samples {
             let bytes = encode(&packet);
@@ -400,6 +462,24 @@ mod tests {
         assert!(
             matches!(unknown, Packet::Unknown { header } if header.kind == 99 && header.sequence == 4)
         );
+    }
+
+    #[test]
+    fn mode_and_touch_vectors_match_the_spec() {
+        let mode = encode(&Packet::Mode {
+            header: header(KIND_MODE, 1, 1000),
+            mode: MODE_AIR,
+        });
+        let hex: String = mode.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex, "010a0100e803000001");
+        let touch = encode(&Packet::Touch {
+            header: header(KIND_TOUCH, 2, 1000),
+            x_acc: 250,
+            y_acc: -100,
+            down: true,
+        });
+        let hex: String = touch.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex, "010b0200e8030000fa009cff01");
     }
 
     #[test]

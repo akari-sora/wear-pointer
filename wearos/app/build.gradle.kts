@@ -23,8 +23,8 @@ android {
         applicationId = "dev.wearpointer"
         minSdk = 33
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.2.2"
+        versionCode = 6
+        versionName = "0.2.4"
     }
 
     signingConfigs {
@@ -41,7 +41,14 @@ android {
     buildTypes {
         release {
             applicationIdSuffix = ".app"
-            isMinifyEnabled = false
+            // R8 cuts the APK from ~16.5 MB to a few MB and lets Compose run
+            // its optimized paths, which matters for cold start on a watch.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             if (hasReleaseKeystore) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -59,6 +66,14 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    lint {
+        // Wear OS masks launcher icons to a circle, so a full-bleed square is correct.
+        disable += "IconLauncherShape"
+        // Dependency bumps are done deliberately with an on-watch retest, not by lint.
+        disable += "GradleDependency"
+        abortOnError = true
     }
 }
 

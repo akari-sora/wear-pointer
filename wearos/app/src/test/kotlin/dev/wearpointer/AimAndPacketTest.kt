@@ -74,5 +74,15 @@ class AimAndPacketTest {
         assertEquals(Packets.MAX_DPI, highDpi)
     }
 
+    @Test
+    fun modeAndTouchPacketsMatchTheSpecVectors() {
+        // Same vectors as protocol/v1.json and the Rust codec test.
+        assertEquals("010a0100e803000001", Packets.mode(1, 1000, Packets.MODE_AIR).toHex())
+        assertEquals("010b0200e8030000fa009cff01", Packets.touch(2, 1000, 250, -100, true).toHex())
+        // Cumulative travel wraps at 16 bits instead of saturating.
+        val wrapped = Packets.touch(0, 0, 32_767 + 101, 0, false)
+        assertEquals("648000", wrapped.copyOfRange(8, 11).toHex().substring(0, 6))
+    }
+
     private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 }

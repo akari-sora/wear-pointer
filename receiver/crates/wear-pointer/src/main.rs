@@ -13,8 +13,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 use wear_pointer_bluetooth::{CentralLink, LinkEvent, PeripheralLink, PointerLink};
 use wear_pointer_core::{
-    dpi_to_speed, reach_degrees, CursorAction, PointerSession, Screen, SessionConfig, CURSOR_HZ,
-    DEFAULT_DPI,
+    dpi_to_speed, reach_degrees, ControlMode, CursorAction, PointerSession, Screen, SessionConfig,
+    CURSOR_HZ, DEFAULT_DPI,
 };
 use wear_pointer_platform::{LogBackend, PointerBackend};
 
@@ -123,9 +123,13 @@ fn main() -> Result<()> {
         .context("spawn bluetooth thread")?;
 
     let mut backend = open_backend(args.backend, args.config.screen, args.screen_explicit)?;
+    let mode_override = args.config.mode_override;
     let mut session = PointerSession::new(args.config);
     session.set_screen(backend.screen());
     let mut last_logged_dpi = session.effective_dpi();
+    let mut last_logged_mode = session.effective_mode();
+    let mut last_cursor_sync_s = f64::NEG_INFINITY;
+    let mut last_remote_note: Option<ControlMode> = None;
     let frame = Duration::from_secs_f64(1.0 / f64::from(CURSOR_HZ));
     let mut next = Instant::now();
     let mut link_epoch = 0u64;
@@ -135,9 +139,15 @@ fn main() -> Result<()> {
         "No --device filter set (accepts first matching watch)."
     };
     eprintln!(
-        "wear-pointer: cursor loop at {CURSOR_HZ} Hz ({} DPI, reach ±{:.1}°). Ctrl-C to quit. {pairing_note}",
+        "wear-pointer: cursor loop at {CURSOR_HZ} Hz ({} DPI, reach ±{:.1}°, {} mode{}). Ctrl-C to quit. {pairing_note}",
         last_logged_dpi,
         reach_degrees(session.effective_speed()),
+        last_logged_mode.label(),
+        if mode_override.is_some() {
+            ", forced by --mode"
+        } else {
+            "; the watch can switch it"
+        },
     );
     loop {
         let stopping = cursor_stop.load(Ordering::Acquire);
@@ -192,6 +202,23 @@ fn main() -> Result<()> {
                     reach_degrees(session.effective_speed()),
                 );
             }
+            let cur_mode = session.effective_mode();
+            if cur_mode != last_logged_mode {
+                last_logged_mode = cur_mode;
+                if let Some(trace) = trace.as_mut() {
+                    trace.mode(start.elapsed().as_secs_f64(), cur_mode.label());
+                }
+                eprintln!("wear-pointer: pointing mode -> {}", mode_blurb(cur_mode));
+            } else if let (Some(forced), Some(remote)) = (mode_override, session.remote_mode()) {
+                if remote != forced && remote != last_remote_note.unwrap_or(forced) {
+                    eprintln!(
+                        "wear-pointer: watch asked for {} mode; staying in {} (--mode)",
+                        remote.label(),
+                        forced.label()
+                    );
+                }
+                last_remote_note = Some(remote);
+            }
         }
         if stopping {
             if link_epoch != 0 {
@@ -209,6 +236,13 @@ fn main() -> Result<()> {
             break;
         }
         let now = start.elapsed().as_secs_f64();
+        // Relative modes continue from wherever a real mouse left the cursor.
+        if session.wants_external_cursor() && now - last_cursor_sync_s >= CURSOR_SYNC_INTERVAL_S {
+            last_cursor_sync_s = now;
+            if let Some(point) = backend.cursor_position() {
+                session.sync_external_cursor(point, now);
+            }
+        }
         let (actions, debug) = session.tick(now);
         for action in actions {
             if let Some(trace) = trace.as_mut() {
@@ -239,7 +273,7 @@ fn main() -> Result<()> {
                     _ => String::new(),
                 };
                 eprintln!(
-                    "wear-pointer debug: rx={:.1}/s loss_window={} ({:.1}%) latency_ms avg={:.1} min={:.1} max={:.1} dpi={} cursor={cursor}{remote}",
+                    "wear-pointer debug: rx={:.1}/s loss_window={} ({:.1}%) latency_ms avg={:.1} min={:.1} max={:.1} dpi={} mode={} cursor={cursor}{remote}",
                     debug.rx_hz,
                     debug.lost_window,
                     debug.loss_pct_window,
@@ -247,6 +281,7 @@ fn main() -> Result<()> {
                     debug.latency_min_ms,
                     debug.latency_max_ms,
                     debug.effective_dpi,
+                    debug.mode.label(),
                 );
             }
         }
@@ -313,7 +348,9 @@ impl Trace {
     fn event(&mut self, t: f64, event: &LinkEvent) {
         let line = match event {
             LinkEvent::Connected { epoch, device } => format!("{t:.6} connected {epoch} {device}"),
-            LinkEvent::Disconnected { epoch, reason } => format!("{t:.6} disconnected {epoch} {reason}"),
+            LinkEvent::Disconnected { epoch, reason } => {
+                format!("{t:.6} disconnected {epoch} {reason}")
+            }
             LinkEvent::Packet {
                 epoch,
                 received_at_s,
@@ -330,7 +367,10 @@ impl Trace {
         let line = match action {
             CursorAction::Move { x, y } => format!("{t:.6} move {x:.1} {y:.1}"),
             CursorAction::Button { button, down } => {
-                format!("{t:.6} button {button:?} {}", if *down { "down" } else { "up" })
+                format!(
+                    "{t:.6} button {button:?} {}",
+                    if *down { "down" } else { "up" }
+                )
             }
             CursorAction::Scroll { delta_px } => format!("{t:.6} scroll {delta_px}"),
         };
@@ -339,6 +379,10 @@ impl Trace {
 
     fn dpi(&mut self, t: f64, dpi: u16) {
         let _ = writeln!(self.out, "{t:.6} dpi {dpi}");
+    }
+
+    fn mode(&mut self, t: f64, mode: &str) {
+        let _ = writeln!(self.out, "{t:.6} mode {mode}");
     }
 
     fn flush_if_due(&mut self, t: f64) {
@@ -350,6 +394,17 @@ impl Trace {
 
     fn flush_now(&mut self) {
         let _ = self.out.flush();
+    }
+}
+
+/// How often the relative modes ask the OS where the cursor is.
+const CURSOR_SYNC_INTERVAL_S: f64 = 1.0 / 30.0;
+
+fn mode_blurb(mode: ControlMode) -> &'static str {
+    match mode {
+        ControlMode::Absolute => "absolute (laser: the cursor goes where the watch points; Center re-aims)",
+        ControlMode::Air => "air (air mouse: wrist motion moves the cursor, faster turns go farther; Pause is the clutch)",
+        ControlMode::Touch => "touch (touchpad: slide a finger on the watch to move; tap clicks, hold drags)",
     }
 }
 
@@ -450,6 +505,10 @@ fn parse_args() -> Result<Args> {
                 print_help();
                 std::process::exit(0);
             }
+            "--version" | "-V" => {
+                println!("wear-pointer {}", env!("CARGO_PKG_VERSION"));
+                std::process::exit(0);
+            }
             "--debug" => debug = true,
             "--adapter" => adapter = Some(args.next().context("--adapter NAME, for example hci1")?),
             "--device" => {
@@ -500,6 +559,12 @@ fn parse_args() -> Result<Args> {
             "--steady" => config.steady_hz = number(&mut args, "--steady")?,
             "--quick" => config.quickness = number(&mut args, "--quick")?,
             "--dead-zone" => config.dead_zone_deg = number(&mut args, "--dead-zone")?,
+            "--mode" => {
+                let value = args.next().context("--mode absolute|air|touch")?;
+                config.mode_override = Some(ControlMode::parse(&value).with_context(|| {
+                    format!("--mode expects absolute, air, or touch, got {value:?}")
+                })?);
+            }
             "--screen" => {
                 let value = args.next().context("--screen WIDTH x HEIGHT")?;
                 config.screen = parse_screen(&value)?;
@@ -539,7 +604,7 @@ fn parse_args() -> Result<Args> {
 }
 
 fn decode_hex(hex: &str) -> Result<Vec<u8>> {
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         anyhow::bail!("odd hex length {}", hex.len());
     }
     let mut out = Vec::with_capacity(hex.len() / 2);
@@ -649,30 +714,39 @@ fn parse_screen(value: &str) -> Result<Screen> {
 }
 
 fn print_help() {
-    eprintln!(
+    println!(
         "\
-wear-pointer — desktop receiver
+wear-pointer {version} — desktop receiver
 
   wear-pointer [--debug] [--role central|peripheral] [--backend hyprland|macos|windows|log|uinput]
                [--dpi {DEFAULT_DPI}] [--speed 1.6] [--steady 0.8] [--quick 0.01] [--dead-zone 0.0]
                [--screen 1920x1080] [--adapter hci1] [--device MATCH] [--trace FILE] [--replay FILE]
+               [--mode absolute|air|touch] [--version]
 
-Stage 0 (no cursor movement):
-  cargo run -p wear-pointer -- --debug --backend log
+Check the link first (no cursor movement, one stats line per second):
+  wear-pointer --debug --backend log
 
-Stage 1 on Hyprland (default on Linux when WAYLAND_DISPLAY is set), macOS, or Windows:
-  cargo run -p wear-pointer --release -- --debug
+Move the cursor (Hyprland is the default on Linux when WAYLAND_DISPLAY is set; macOS / Windows pick
+their native backend):
+  wear-pointer --debug
+
+From a source checkout, replace `wear-pointer` with `cargo run -p wear-pointer --release --`.
 
 --dpi sets pointer sensitivity in DPI (default: {DEFAULT_DPI} DPI = ±15.6° reach; 1000 DPI = ±25°).
       Also adjustable live from the watch UI (400..3200 DPI).
 --speed is WatchPointer's multiplier alias (speed = dpi / 1000).
+--mode forces a pointing model; without it the watch chooses (Settings sheet → Mode):
+      absolute  laser pointer: the cursor goes where the watch points (default)
+      air       air mouse: wrist motion moves the cursor with acceleration, no Center needed
+      touch     touchpad: slide a finger on the watch screen
 --dead-zone is degrees of aim to ignore. Leave it at 0 unless a log shows jitter.
 --role peripheral is the documented fallback and is not implemented on the desktop yet.
 --adapter picks a Bluetooth adapter by name (default: the first one).
 --device restricts connections to a peripheral whose ID, BD_ADDR, or local name matches MATCH.
 --trace writes every link event, packet, and cursor action to FILE (tools/harness reads it).
 --replay replays link events and raw BLE packets from a --trace FILE through the selected backend.
-"
+",
+        version = env!("CARGO_PKG_VERSION"),
     );
 }
 
@@ -682,8 +756,12 @@ mod tests {
 
     #[test]
     fn parses_trace_connected_rx_and_ignores_actions() {
-        assert!(parse_trace_link_event("# start_unix 1794705977.698").unwrap().is_none());
-        assert!(parse_trace_link_event("4.2 move 960.0 540.0").unwrap().is_none());
+        assert!(parse_trace_link_event("# start_unix 1794705977.698")
+            .unwrap()
+            .is_none());
+        assert!(parse_trace_link_event("4.2 move 960.0 540.0")
+            .unwrap()
+            .is_none());
 
         let (t, ev) = parse_trace_link_event("1.25 connected 1 SM-L310 (hci0)")
             .unwrap()

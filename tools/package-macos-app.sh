@@ -11,7 +11,7 @@ fi
 
 BIN_SRC="$1"
 OUT_DIR="$2"
-VERSION="${3:-0.2.2}"
+VERSION="${3:-0.2.4}"
 SIGN_ID="${4:--}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -43,7 +43,7 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
     <key>CFBundleShortVersionString</key>
     <string>${VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>4</string>
+    <string>6</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSBluetoothAlwaysUsageDescription</key>

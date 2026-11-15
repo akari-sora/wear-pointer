@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalView
@@ -64,6 +65,7 @@ import dev.wearpointer.PointerRuntime
 import dev.wearpointer.proto.Packets
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -83,6 +85,7 @@ private val AccentRose = Color(0xFFF43F5E)
 
 @Composable
 fun RemoteScreen(
+    permissionsBlocked: Boolean,
     onRequestPermissions: () -> Unit,
     onRole: (PointerRuntime.Role) -> Unit,
     onDpi: (Int) -> Unit,
@@ -144,8 +147,12 @@ fun RemoteScreen(
                     CenteredNoticeScreen(
                         badgeColor = AccentAmber,
                         title = "Bluetooth Needed",
-                        subtitle = "Allow advertising and GATT link to pair with desktop receiver.",
-                        buttonLabel = "Allow Bluetooth",
+                        subtitle = if (permissionsBlocked) {
+                            "Bluetooth was denied. Turn on Nearby devices in app permissions."
+                        } else {
+                            "Allow advertising and GATT link to pair with desktop receiver."
+                        },
+                        buttonLabel = if (permissionsBlocked) "Open Settings" else "Allow Bluetooth",
                         onAction = onRequestPermissions,
                     )
                 }
@@ -323,9 +330,13 @@ private fun StatusCapsule(
         ui.status == "Stopped" -> "STOPPED"
         ui.status.startsWith("Sensor gap") -> "RECENTERED"
         ui.paused -> "PAUSED · AWAKE"
-        ui.connected -> {
-            val hz = if (ui.samplesPerSec > 0) "${ui.samplesPerSec}HZ" else "LIVE"
-            "$hz · ${ui.dpi} DPI"
+        ui.connected -> when (ui.mode) {
+            PointerRuntime.Mode.ABSOLUTE -> {
+                val hz = if (ui.samplesPerSec > 0) "${ui.samplesPerSec}HZ" else "LIVE"
+                "$hz · ${ui.dpi} DPI"
+            }
+            PointerRuntime.Mode.AIR -> "AIR · ${ui.dpi} DPI"
+            PointerRuntime.Mode.TOUCH -> "TOUCH · ${ui.dpi} DPI"
         }
         ui.status.startsWith("Link dropped") -> "RECONNECTING"
         ui.status.contains("Advertising", ignoreCase = true) -> "ADV · ${ui.dpi} DPI"
@@ -366,11 +377,15 @@ private fun StatusCapsule(
 private fun ClickPad(ui: PointerRuntime.UiState, modifier: Modifier) {
     var pressing by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
+    var sliding by remember { mutableStateOf(false) }
     val holdProgress = remember { Animatable(0f) }
     val view = LocalView.current
+    val touchMode = ui.mode == PointerRuntime.Mode.TOUCH
 
-    LaunchedEffect(pressing, dragging) {
-        if (pressing && !dragging) {
+    LaunchedEffect(pressing, dragging, sliding) {
+        if (sliding) {
+            holdProgress.snapTo(0f)
+        } else if (pressing && !dragging) {
             holdProgress.snapTo(0f)
             holdProgress.animateTo(
                 targetValue = 1f,
@@ -404,12 +419,15 @@ private fun ClickPad(ui: PointerRuntime.UiState, modifier: Modifier) {
         dragging -> "DRAG LOCKED"
         ui.paused -> "PAUSED"
         !ui.connected -> "STANDBY"
+        touchMode -> "SLIDE"
         else -> "TAP"
     }
     val subLabel = when {
         isStopped -> "TAP START BELOW"
-        dragging -> "RELEASE TO DROP"
-        ui.paused -> "TRACKS WHILE AWAKE"
+        dragging -> if (touchMode) "SLIDE TO DRAG" else "RELEASE TO DROP"
+        ui.paused -> if (ui.mode == PointerRuntime.Mode.ABSOLUTE) "TRACKS WHILE AWAKE" else "CLUTCH · CURSOR HELD"
+        touchMode -> "TAP CLICK · HOLD DRAG"
+        ui.mode == PointerRuntime.Mode.AIR -> "AIR MOUSE · HOLD DRAG"
         else -> "HOLD DRAG · BEZEL SCROLL"
     }
     val reticleColor = when {
@@ -425,8 +443,23 @@ private fun ClickPad(ui: PointerRuntime.UiState, modifier: Modifier) {
             .clip(padShape)
             .background(surfaceColor)
             .border(borderWidth, borderColor, padShape)
-            .semantics { contentDescription = "Touchpad: tap for left click, hold to drag" }
-            .pointerInput(Unit) {
+            .semantics {
+                contentDescription = if (touchMode) {
+                    "Touchpad: slide to move the cursor, tap to click, hold to drag"
+                } else {
+                    "Click pad: tap for left click, hold to drag"
+                }
+            }
+            .pointerInput(touchMode) {
+                if (touchMode) {
+                    touchpadGestures(
+                        onPressing = { pressing = it },
+                        onSliding = { sliding = it },
+                        onDragging = { dragging = it },
+                        haptic = { view.performHapticFeedback(it) },
+                    )
+                    return@pointerInput
+                }
                 awaitEachGesture {
                     awaitFirstDown()
                     pressing = true
@@ -499,6 +532,7 @@ private fun ClickPad(ui: PointerRuntime.UiState, modifier: Modifier) {
                 )
             }
 
+            if (touchMode) return@Canvas
             // Live spatial aim puck: mirrors desktop cursor direction at active DPI reach.
             val reachDeg = (25f * Packets.BASE_DPI / ui.dpi.coerceAtLeast(Packets.MIN_DPI))
                 .coerceIn(6f, 65f)
@@ -546,6 +580,84 @@ private fun ClickPad(ui: PointerRuntime.UiState, modifier: Modifier) {
         }
     }
 }
+
+/**
+ * Watch-screen touchpad. Finger travel goes to [PointerRuntime.touchMove] in
+ * millimetres; the desktop applies pointer acceleration. A touch that stays
+ * within the slop is a click on release, or a drag lock after
+ * [Packets.HOLD_TO_DRAG_MS]; once locked, sliding drags.
+ */
+private suspend fun PointerInputScope.touchpadGestures(
+    onPressing: (Boolean) -> Unit,
+    onSliding: (Boolean) -> Unit,
+    onDragging: (Boolean) -> Unit,
+    haptic: (Int) -> Unit,
+) {
+    val mmPerPx = MM_PER_DP / density
+    val slopPx = TOUCH_SLOP_DP * density
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        down.consume()
+        val downNs = SystemClock.elapsedRealtimeNanos()
+        val holdDeadline = down.uptimeMillis + Packets.HOLD_TO_DRAG_MS
+        onPressing(true)
+        PointerRuntime.touchFinger(true)
+        var last = down.position
+        var moved = false
+        var holding = false
+        try {
+            while (true) {
+                val event = if (!moved && !holding) {
+                    val remaining = holdDeadline - SystemClock.uptimeMillis()
+                    if (remaining <= 0) null else withTimeoutOrNull(remaining) { awaitPointerEvent() }
+                } else {
+                    awaitPointerEvent()
+                }
+                if (event == null) {
+                    holding = true
+                    onDragging(true)
+                    haptic(HapticFeedbackConstants.LONG_PRESS)
+                    PointerRuntime.drag(down = true, eventNs = downNs)
+                    continue
+                }
+                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                if (!change.pressed) {
+                    if (!moved && !holding) {
+                        haptic(HapticFeedbackConstants.KEYBOARD_TAP)
+                        PointerRuntime.leftClick(downNs)
+                    }
+                    break
+                }
+                if (!moved && !holding && (change.position - down.position).getDistance() > slopPx) {
+                    moved = true
+                    onSliding(true)
+                }
+                if (moved || holding) {
+                    val delta = change.position - last
+                    PointerRuntime.touchMove(delta.x * mmPerPx, delta.y * mmPerPx)
+                    last = change.position
+                }
+                change.consume()
+            }
+        } finally {
+            if (holding) {
+                PointerRuntime.drag(
+                    down = false,
+                    eventNs = SystemClock.elapsedRealtimeNanos() - 50_000_000L,
+                )
+            }
+            PointerRuntime.touchFinger(false)
+            onDragging(false)
+            onSliding(false)
+            onPressing(false)
+        }
+    }
+}
+
+/** 1 dp is 1/160 inch. */
+private const val MM_PER_DP = 25.4f / 160f
+/** Finger travel before a touch counts as a slide rather than a tap or hold. */
+private const val TOUCH_SLOP_DP = 8f
 
 @Composable
 private fun DockButton(
@@ -703,8 +815,8 @@ private fun TelemetryOverlay(
         )
         return
     }
-    val leftDeg = "%+.1f°".format(ui.aimLeftCdeg / 100f)
-    val upDeg = "%+.1f°".format(ui.aimUpCdeg / 100f)
+    val leftDeg = "%+d°".format((ui.aimLeftCdeg / 100f).roundToInt())
+    val upDeg = "%+d°".format((ui.aimUpCdeg / 100f).roundToInt())
     val reachDeg = "%.1f°".format(25f * Packets.BASE_DPI / ui.dpi.coerceAtLeast(Packets.MIN_DPI))
     val canDecrease = ui.dpi > Packets.MIN_DPI
     val canIncrease = ui.dpi < Packets.MAX_DPI
@@ -725,7 +837,7 @@ private fun TelemetryOverlay(
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
-                text = "SENSITIVITY · TELEMETRY",
+                text = "SENSITIVITY · MODE",
                 color = TextSecondary,
                 fontSize = 8.5.sp,
                 fontFamily = FontFamily.Monospace,
@@ -816,24 +928,21 @@ private fun TelemetryOverlay(
                 }
             }
 
-            Column(
+            ModeSelector(
+                mode = ui.mode,
+                onMode = { mode ->
+                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    PointerRuntime.setMode(mode)
+                },
+            )
+
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    MetricTile("SENSOR", "${ui.samplesPerSec} Hz", Modifier.weight(1f))
-                    MetricTile("SENT/S", "${ui.sentPerSec}", Modifier.weight(1f))
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    MetricTile("DROP/S", "${ui.droppedPerSec}", Modifier.weight(1f))
-                    MetricTile("AIM L/U", "$leftDeg $upDeg", Modifier.weight(1f), compact = true)
-                }
+                MetricTile("SENSOR", "${ui.samplesPerSec} Hz", Modifier.weight(1f))
+                MetricTile("SENT/S", "${ui.sentPerSec}", Modifier.weight(1f))
+                MetricTile("AIM L/U", "$leftDeg $upDeg", Modifier.weight(1.4f), compact = true)
             }
 
             val watchAdv = ui.role == PointerRuntime.Role.WATCH_ADVERTISES
@@ -903,6 +1012,53 @@ private fun TelemetryOverlay(
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
+            }
+        }
+    }
+}
+
+/** Absolute / Air mouse / Touchpad. The desktop follows the watch's choice. */
+@Composable
+private fun ModeSelector(
+    mode: PointerRuntime.Mode,
+    onMode: (PointerRuntime.Mode) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(26.dp)
+            .clip(CircleShape)
+            .background(SurfaceIdle)
+            .border(1.dp, BorderSubtle, CircleShape)
+            .padding(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        PointerRuntime.Mode.entries.forEach { option ->
+            val selected = option == mode
+            val short = when (option) {
+                PointerRuntime.Mode.ABSOLUTE -> "LASER"
+                PointerRuntime.Mode.AIR -> "AIR"
+                PointerRuntime.Mode.TOUCH -> "TOUCH"
+            }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .background(if (selected) SurfaceDrag else SurfaceIdle)
+                    .border(1.dp, if (selected) AccentEmerald else SurfaceIdle, CircleShape)
+                    .clickable(enabled = !selected) { onMode(option) }
+                    .semantics { contentDescription = "Pointing mode: ${option.label}" },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = short,
+                    color = if (selected) AccentEmerald else TextSecondary,
+                    fontSize = 8.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    maxLines = 1,
+                )
             }
         }
     }

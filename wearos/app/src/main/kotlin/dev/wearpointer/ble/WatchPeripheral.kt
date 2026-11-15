@@ -139,7 +139,7 @@ class WatchPeripheral(
             offset: Int,
             characteristic: BluetoothGattCharacteristic,
         ) {
-            server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, byteArrayOf())
+            respond(device, requestId, offset, byteArrayOf())
         }
 
         override fun onCharacteristicWriteRequest(
@@ -157,7 +157,7 @@ class WatchPeripheral(
                 listener.onStatsRequested()
             }
             if (responseNeeded) {
-                server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
+                respond(device, requestId, offset, value)
             }
         }
 
@@ -171,7 +171,7 @@ class WatchPeripheral(
             value: ByteArray?,
         ) {
             if (responseNeeded) {
-                server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
+                respond(device, requestId, offset, value)
             }
             if (descriptor.uuid != Packets.CCCD_UUID) return
             // Bit 0 is notifications. Bit 1 would be indications, which this
@@ -516,8 +516,26 @@ class WatchPeripheral(
         tearDownServerOnly()
     }
 
+    /**
+     * GATT callbacks run on a binder thread. If Bluetooth permission is revoked
+     * mid-link, a SecurityException here must not crash the app.
+     */
+    @SuppressLint("MissingPermission")
+    private fun respond(device: BluetoothDevice, requestId: Int, offset: Int, value: ByteArray?) {
+        try {
+            server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
+        } catch (err: SecurityException) {
+            Log.w(TAG, "sendResponse", err)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
     private fun tearDownServerOnly() {
-        server?.close()
+        try {
+            server?.close()
+        } catch (err: SecurityException) {
+            Log.w(TAG, "close GATT server", err)
+        }
         server = null
         pointerChar = null
     }

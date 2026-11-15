@@ -1221,7 +1221,7 @@ dependencies = [
 
 [[package]]
 name = "wear-pointer"
-version = "0.2.2"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "embed-resource",
@@ -1233,7 +1233,7 @@ dependencies = [
 
 [[package]]
 name = "wear-pointer-bluetooth"
-version = "0.2.2"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1246,14 +1246,14 @@ dependencies = [
 
 [[package]]
 name = "wear-pointer-core"
-version = "0.2.2"
+version = "0.2.4"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "wear-pointer-platform"
-version = "0.2.2"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "core-foundation",

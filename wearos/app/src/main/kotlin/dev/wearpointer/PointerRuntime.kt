@@ -42,6 +42,21 @@ import kotlinx.coroutines.flow.update
 object PointerRuntime : SensorEventListener, LinkListener {
     enum class Role { WATCH_ADVERTISES, DESKTOP_ADVERTISES }
 
+    /**
+     * Pointing model. [ABSOLUTE] is WatchPointer's laser (cursor = where the
+     * 12 o'clock edge points). [AIR] turns wrist motion into cursor motion with
+     * acceleration, so it never needs a Center. [TOUCH] makes the pad a
+     * touchpad. The desktop does the math; the watch only says which one.
+     */
+    enum class Mode(val wire: Int, val label: String) {
+        ABSOLUTE(Packets.MODE_ABSOLUTE, "Absolute"),
+        AIR(Packets.MODE_AIR, "Air mouse"),
+        TOUCH(Packets.MODE_TOUCH, "Touchpad"),
+        ;
+
+        fun next(): Mode = entries[(ordinal + 1) % entries.size]
+    }
+
     data class UiState(
         val role: Role = Role.WATCH_ADVERTISES,
         val status: String = "Starting",
@@ -55,6 +70,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
         val aimLeftCdeg: Int = 0,
         val aimUpCdeg: Int = 0,
         val dpi: Int = Packets.DEFAULT_DPI,
+        val mode: Mode = Mode.ABSOLUTE,
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -82,6 +98,11 @@ object PointerRuntime : SensorEventListener, LinkListener {
     private var statsRequested = false
     private var debugReceiver: BroadcastReceiver? = null
 
+    // Touchpad state, written from the UI thread, read on the sensor thread.
+    @Volatile private var touchXCentiMm = 0
+    @Volatile private var touchYCentiMm = 0
+    @Volatile private var touchDown = false
+
     @Synchronized
     fun ensureStarted(context: Context) {
         if (started) {
@@ -97,7 +118,8 @@ object PointerRuntime : SensorEventListener, LinkListener {
         holdWakeLock()
         val role = loadRole(app)
         val dpi = loadDpi(app)
-        _state.update { it.copy(role = role, dpi = dpi, bluetoothGranted = hasPermissions(app)) }
+        val mode = loadMode(app)
+        _state.update { it.copy(role = role, dpi = dpi, mode = mode, bluetoothGranted = hasPermissions(app)) }
         handler?.post {
             startSensors()
             openTransport(role)
@@ -153,6 +175,29 @@ object PointerRuntime : SensorEventListener, LinkListener {
         }
     }
 
+    fun setMode(mode: Mode) {
+        appContext?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            ?.edit()
+            ?.putString(KEY_MODE, mode.name)
+            ?.apply()
+        _state.update { it.copy(mode = mode) }
+        Log.i(TAG, "mode=${mode.name}")
+        handler?.post {
+            touchDown = false
+            if (transport?.ready == true) sendMode(mode)
+        }
+    }
+
+    /** Touchpad finger travel since the last call, in millimetres. UI thread. */
+    fun touchMove(dxMm: Float, dyMm: Float) {
+        touchXCentiMm += kotlin.math.round(dxMm * 100f).toInt()
+        touchYCentiMm += kotlin.math.round(dyMm * 100f).toInt()
+    }
+
+    fun touchFinger(down: Boolean) {
+        touchDown = down
+    }
+
     fun stepDpi(steps: Int) {
         if (steps == 0) return
         setDpi(_state.value.dpi + steps * Packets.DPI_STEP)
@@ -197,6 +242,9 @@ object PointerRuntime : SensorEventListener, LinkListener {
         tracker.center()
         _state.update { it.copy(aimLeftCdeg = 0, aimUpCdeg = 0) }
         if (transport?.ready != true) return
+        // Relative modes have no base to lose: the desktop drops the one-off
+        // jump in the aim angles, and a Center would warp the cursor.
+        if (_state.value.mode != Mode.ABSOLUTE) return
         send(Packets.center(0, timestampUs), reliable = true)
         Log.i(TAG, "Sensor gap — recentered")
         _state.update { it.copy(status = "Sensor gap — recentered; press Center if the cursor is off") }
@@ -303,6 +351,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
     @SuppressLint("MissingPermission")
     private fun openTransport(role: Role) {
         val context = appContext ?: return
+        if (transport != null) return
         if (!hasPermissions(context)) {
             _state.update { it.copy(bluetoothGranted = false, status = "Bluetooth permission needed") }
             return
@@ -353,10 +402,15 @@ object PointerRuntime : SensorEventListener, LinkListener {
                 val left = tracker.leftCdeg()
                 val up = tracker.upCdeg()
                 if (!paused && transport?.ready == true) {
-                    send(
-                        Packets.aim(0, nanosToUs(event.timestamp), left, up),
-                        reliable = false,
-                    )
+                    // Touch mode reuses the 100 Hz sensor clock as its cadence, so
+                    // the desktop's silence rules (drag release, reconnect) work
+                    // unchanged while a finger rests on the pad.
+                    val packet = if (_state.value.mode == Mode.TOUCH) {
+                        Packets.touch(0, nanosToUs(event.timestamp), touchXCentiMm, touchYCentiMm, touchDown)
+                    } else {
+                        Packets.aim(0, nanosToUs(event.timestamp), left, up)
+                    }
+                    send(packet, reliable = false)
                 }
                 if (event.timestamp - lastUiAimNs >= UI_AIM_INTERVAL_NS) {
                     val cur = _state.value
@@ -395,6 +449,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
             if (infoTicks == 1 || infoTicks % 60 == 0) {
                 sendInfo()
                 sendSensitivity(_state.value.dpi)
+                sendMode(_state.value.mode)
             }
         }
         if (!paused) holdWakeLock()
@@ -439,6 +494,10 @@ object PointerRuntime : SensorEventListener, LinkListener {
         )
     }
 
+    private fun sendMode(mode: Mode) {
+        send(Packets.mode(0, nowUs(), mode.wire), reliable = true)
+    }
+
     private fun send(packet: ByteArray, reliable: Boolean) {
         val transport = transport
         if (transport == null || !transport.ready) {
@@ -464,6 +523,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
             infoTicks = 0
             sendInfo()
             sendSensitivity(_state.value.dpi)
+            sendMode(_state.value.mode)
         }
         _state.update { it.copy(connected = connected) }
     }
@@ -518,7 +578,10 @@ object PointerRuntime : SensorEventListener, LinkListener {
         val granted = hasPermissions(context)
         _state.update { it.copy(bluetoothGranted = granted) }
         if (granted && transport == null) {
-            handler?.post { openTransport(_state.value.role) }
+            // Checked again on the handler: ensureStarted posts the first
+            // openTransport, and a second GATT server would advertise the
+            // service twice.
+            handler?.post { if (transport == null) openTransport(_state.value.role) }
         }
     }
 
@@ -544,10 +607,16 @@ object PointerRuntime : SensorEventListener, LinkListener {
         return saved.coerceIn(Packets.MIN_DPI, Packets.MAX_DPI)
     }
 
+    private fun loadMode(context: Context): Mode {
+        val name = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_MODE, null)
+        return runCatching { Mode.valueOf(name ?: "") }.getOrDefault(Mode.ABSOLUTE)
+    }
+
     private const val ACTION_DEBUG_DROP_LINK = "dev.wearpointer.DEBUG_DROP_LINK"
     private const val PREFS = "wear-pointer"
     private const val KEY_ROLE = "role"
     private const val KEY_DPI = "dpi"
+    private const val KEY_MODE = "mode"
     private const val SAMPLE_US = 10_000
     private const val UI_AIM_INTERVAL_NS = 33_000_000L
     private const val WAKE_MS = 10 * 60 * 1000L

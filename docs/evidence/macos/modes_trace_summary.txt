@@ -1,0 +1,30 @@
+# start_unix 1794714595.204959
+2.812203 connected 1 watch (08f2d6e6-95ef-841d-f603-fd01fddfddc2)
+2.901132 rx 1 01060000b34060ba6401e603534d2d4c333130
+2.931184 rx 1 01090100515d60ba4006
+2.962351 rx 1 010a0200f65d60ba00
+2.962352 rx 1 01000300b94961baf2fffeff
+2.966379 move 968.4 541.2
+2.991048 rx 1 01000400207161baf2fffeff
+2.991049 rx 1 01000500539861baf2fffdff
+2.991049 rx 1 01000600bec061baf3fffdff
+2.994400 move 968.4 541.2
+3.020958 rx 1 01000700aee661baf3fffdff
+3.020958 rx 1 01000800e00d62baf3fffdff
+3.020961 rx 1 010009000d3562baf3fffdff
+3.023560 move 968.3 541.3
+# --- non-move actions, mode switches, live DPI updates, and link epochs ---
+# start_unix 1794714595.204959
+2.812203 connected 1 watch (08f2d6e6-95ef-841d-f603-fd01fddfddc2)
+6.277730 mode air
+14.049140 button Left down
+14.049231 button Left up
+17.860864 mode touch
+26.245337 button Left down
+26.245358 button Left up
+27.715979 button Left down
+29.724142 button Left up
+32.307448 scroll -272
+33.911199 mode absolute
+36.911269 disconnected 1 shutdown
+# total_rx=3358 total_moves=917

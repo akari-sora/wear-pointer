@@ -142,6 +142,28 @@ Sent when a central subscribes (alongside `Info`) and immediately whenever the u
 
 Queued `Sensitivity` packets coalesce at the tail of the outbound queue when the user spins the bezel rapidly so intermediate detents do not back up behind an in-flight notification.
 
+### 10 Mode (9 bytes)
+
+Sent when a central subscribes (alongside `Info` and `Sensitivity`) and immediately whenever the user switches the pointing mode on the watch.
+
+| Offset | Type | Field |
+| --- | --- | --- |
+| 8 | u8 | `mode`. `0` = `LASER` (absolute spatial projection), `1` = `AIR` (relative gyroscope air mouse with speed-gain acceleration), `2` = `TOUCH` (watch-face touchpad). Unknown values are ignored. |
+
+Queued `Mode` packets coalesce at the tail of the outbound queue. Switching to `AIR` or `TOUCH` drops any queued `Aim` or `Touch` tail packet from the previous mode; switching back to `LASER` follows with a `Center` calibration boundary when resumed.
+
+### 11 Touch (13 bytes)
+
+Sent at the watch's 100 Hz sensor cadence while a finger slides across the central pad in `TOUCH` mode (plus an explicit touch-down anchor and touch-up boundary).
+
+| Offset | Type | Field |
+| --- | --- | --- |
+| 8 | i16 | `x_acc_cmm`. Cumulative horizontal finger travel in `0.01 mm` (`+` right), wrapping modulo `2^16`. |
+| 10 | i16 | `y_acc_cmm`. Cumulative vertical finger travel in `0.01 mm` (`+` down), wrapping modulo `2^16`. |
+| 12 | u8 | `down`. `1` while the finger is touching the pad, `0` on lift. |
+
+Because `x_acc_cmm` and `y_acc_cmm` carry cumulative wrapping travel rather than per-packet deltas, coalescing a newer `Touch` sample over an unsent `Touch` at the queue tail (or losing an intermediate BLE notification) preserves total finger displacement without drift. A first sample with `down = 1` anchors the stroke reference without moving the cursor; `down = 0` ends the stroke. Tap-to-click (`Kind 1`) and 350 ms hold-to-drag (`Kind 7`) continue to use the dedicated click and drag packets.
+
 ## Control commands (desktop to watch)
 
 One byte written to the control characteristic:
@@ -160,7 +182,7 @@ Sequence 1, timestamp 1000 µs, left = 12.34°, up = −0.50°.
 01 00 01 00 e8 03 00 00 d2 04 ce ff
 ```
 
-`v1.json` field `aim_vector_hex` is this packet without spaces.
+`v1.json` field `aim_vector_hex` is this packet without spaces (`mode_vector_hex` and `touch_vector_hex` provide matching vectors for Kinds 10 and 11).
 
 ## Rates
 

@@ -1,0 +1,23 @@
+[2026-11-15 11:49:46] === macOS LIVE WATCH7 v0.2.4 POINTING MODES ===
+[2026-11-15 11:49:48] Mac screen: LOCKED (when locked, injected events reach only loginwindow; the shield cannot record them, receiver.trace + cursor reads are the evidence)
+[2026-11-15 11:49:58] Linked (absolute mode)
+[2026-11-15 11:50:03] AIR 1: receiver switched to air mode (watch Mode packet)
+[2026-11-15 11:50:08] AIR 2: watch at rest 3 s -> cursor 960,540 -> 959,540 (expected: no drift)
+[2026-11-15 11:50:09] AIR 3: real mouse moved the cursor to 1055,465
+[2026-11-15 11:50:09] AIR 3: watch left click issued (expect click at the mouse position, not yanked back)
+[2026-11-15 11:50:11] AIR 4: pause/resume clutch, cursor 1055,465
+[2026-11-15 11:50:15] TOUCH 1: receiver switched to touch mode
+[2026-11-15 11:50:17] TOUCH 2: fast swipe right 140 px on the watch -> cursor 960,540 -> 1116,540
+[2026-11-15 11:50:19] TOUCH 3: slow swipe left 80 px -> cursor 1116,540 -> 1074,540
+[2026-11-15 11:50:21] TOUCH 4: swipe down 80 px -> cursor 1074,540 -> 1074,587
+[2026-11-15 11:50:22] TOUCH 5: tap -> left click at 1074,587
+[2026-11-15 11:50:25] TOUCH 6: hold 600 ms then slide -> drag lock + drag, cursor 1116,587
+[2026-11-15 11:50:27] TOUCH 7: edge-to-edge slide does not dismiss the app:   mCurrentFocus=Window{b23275 u0 dev.wearpointer.app/dev.wearpointer.MainActivity}
+[2026-11-15 11:50:27] TOUCH 8: bezel scroll still works in touch mode
+[2026-11-15 11:50:31] LASER: receiver back in absolute mode
+[2026-11-15 11:50:32] LASER: Center -> cursor 951,539
+SCREEN=1920x1080
+SHIELD_RECT=730,360,460x360
+ORIG_CUR=-1254,935
+BEFORE_CENTER=1055,465
+RESTORED_CURSOR=-1254,935

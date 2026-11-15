@@ -4,18 +4,22 @@
 use crate::PointerBackend;
 use anyhow::Result;
 use std::time::Instant;
-use wear_pointer_core::{Button, Screen};
+use wear_pointer_core::{Button, DesktopLayout, Screen};
 
 pub struct LogBackend {
-    screen: Screen,
+    layout: DesktopLayout,
     last_move: Instant,
     moves: u64,
 }
 
 impl LogBackend {
     pub fn new(screen: Screen) -> Self {
+        Self::with_layout(DesktopLayout::single(screen))
+    }
+
+    pub fn with_layout(layout: DesktopLayout) -> Self {
         Self {
-            screen,
+            layout,
             last_move: Instant::now(),
             moves: 0,
         }
@@ -51,6 +55,10 @@ impl PointerBackend for LogBackend {
     }
 
     fn screen(&self) -> Screen {
-        self.screen
+        self.layout.primary_display().bounds.to_screen()
+    }
+
+    fn layout(&mut self) -> DesktopLayout {
+        self.layout.clone()
     }
 }

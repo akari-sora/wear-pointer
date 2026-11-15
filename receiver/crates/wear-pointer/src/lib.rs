@@ -17,10 +17,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tray::{TrayBridge, TrayCommand, TraySnapshot};
 use wear_pointer_bluetooth::{CentralLink, LinkEvent, PeripheralLink, PointerLink};
 use wear_pointer_core::{
-    dpi_to_speed, reach_degrees, ControlMode, CursorAction, PointerSession, Screen, SessionConfig,
-    CURSOR_HZ, DEFAULT_DPI,
+    dpi_to_speed, reach_degrees, ControlMode, CursorAction, DesktopLayout, DisplayTarget,
+    PointerSession, Screen, SessionConfig, CURSOR_HZ, DEFAULT_DPI,
 };
-use wear_pointer_platform::{LogBackend, PointerBackend};
+use wear_pointer_platform::{detect_host_layout, LogBackend, PointerBackend};
 
 #[cfg(target_os = "linux")]
 use wear_pointer_platform::HyprlandBackend;
@@ -135,6 +135,11 @@ fn run_with_args(args: Args) -> Result<()> {
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     if args.tray {
+        let initial_layout = if args.screen_explicit {
+            DesktopLayout::single(args.config.screen)
+        } else {
+            detect_host_layout()
+        };
         let initial_snap = TraySnapshot {
             effective_mode: args.config.mode_override.unwrap_or(ControlMode::Absolute),
             mode_override: args.config.mode_override,
@@ -143,6 +148,8 @@ fn run_with_args(args: Args) -> Result<()> {
                 .config
                 .cli_speed_override
                 .map(wear_pointer_core::speed_to_dpi),
+            layout: initial_layout,
+            display_target: args.config.display_target.clone(),
             ..TraySnapshot::default()
         };
         let (bridge, cmd_rx) = TrayBridge::new(initial_snap, Arc::clone(&stop));
@@ -251,10 +258,15 @@ fn run_engine(
 
     let mut backend = open_backend(args.backend, args.config.screen, args.screen_explicit)?;
     let mut session = PointerSession::new(args.config);
-    session.set_screen(backend.screen());
+    session.set_layout(backend.layout());
+    if let Some(pos) = backend.cursor_position() {
+        session.sync_external_cursor(pos, 0.0);
+    }
     let mut last_logged_dpi = session.effective_dpi();
     let mut last_logged_mode = session.effective_mode();
     let mut last_cursor_sync_s = f64::NEG_INFINITY;
+    let mut last_idle_display_sync_s = f64::NEG_INFINITY;
+    let mut last_layout_poll_s = 0.0f64;
     let mut last_remote_note: Option<ControlMode> = None;
     let frame = Duration::from_secs_f64(1.0 / f64::from(CURSOR_HZ));
     let mut next = Instant::now();
@@ -269,7 +281,7 @@ fn run_engine(
         "No --device filter set (accepts first matching watch)."
     };
     logger.line(format!(
-        "wear-pointer: cursor loop at {CURSOR_HZ} Hz ({} DPI, reach ±{:.1}°, {} mode{}). {} {pairing_note}",
+        "wear-pointer: cursor loop at {CURSOR_HZ} Hz ({} DPI, reach ±{:.1}°, {} mode{}, display={}: {}). {} {pairing_note}",
         last_logged_dpi,
         reach_degrees(session.effective_speed()),
         last_logged_mode.label(),
@@ -278,6 +290,8 @@ fn run_engine(
         } else {
             "; the watch can switch it"
         },
+        session.display_target().short_label(session.layout()),
+        session.layout().summary(),
         if tray_io.is_some() {
             "Tray/Menu Bar active."
         } else {
@@ -335,6 +349,19 @@ fn run_engine(
                         });
                         last_tray_push_s = f64::NEG_INFINITY;
                     }
+                    TrayCommand::SetDisplayTarget(target) => {
+                        let label = target.short_label(session.layout());
+                        for action in session.set_display_target(target) {
+                            if let Some(trace) = trace.as_mut() {
+                                trace.action(now, &action);
+                            }
+                            apply(&mut *backend, action)?;
+                        }
+                        logger.line(format!(
+                            "wear-pointer: target display -> {label} (desktop tray)"
+                        ));
+                        last_tray_push_s = f64::NEG_INFINITY;
+                    }
                     TrayCommand::Recenter => {
                         for action in session.center_now() {
                             if let Some(trace) = trace.as_mut() {
@@ -354,9 +381,18 @@ fn run_engine(
         }
 
         let stopping = cursor_stop.load(Ordering::Acquire);
-        let screen = backend.screen();
-        if screen != session.screen() {
-            session.set_screen(screen);
+        let poll_now = start.elapsed().as_secs_f64();
+        if poll_now - last_layout_poll_s >= 1.0 {
+            last_layout_poll_s = poll_now;
+            let latest_layout = backend.layout();
+            if &latest_layout != session.layout() {
+                logger.line(format!(
+                    "wear-pointer: display layout updated -> {}",
+                    latest_layout.summary()
+                ));
+                session.set_layout(latest_layout);
+                last_tray_push_s = f64::NEG_INFINITY;
+            }
         }
         while let Ok(event) = rx.try_recv() {
             if let Some(trace) = trace.as_mut() {
@@ -368,7 +404,11 @@ fn run_engine(
                     connected_peer_label = Some(device.clone());
                     last_tray_push_s = f64::NEG_INFINITY;
                     logger.line(format!("wear-pointer: link up epoch={epoch} {device}"));
-                    session.on_connected()
+                    let actions = session.on_connected();
+                    if let Some(pos) = backend.cursor_position() {
+                        session.sync_external_cursor(pos, start.elapsed().as_secs_f64());
+                    }
+                    actions
                 }
                 LinkEvent::Disconnected { epoch, reason } => {
                     if epoch == link_epoch {
@@ -457,6 +497,11 @@ fn run_engine(
             if let Some(point) = backend.cursor_position() {
                 session.sync_external_cursor(point, now);
             }
+        } else if session.wants_idle_display_sync(now) && now - last_idle_display_sync_s >= 0.25 {
+            last_idle_display_sync_s = now;
+            if let Some(point) = backend.cursor_position() {
+                session.sync_external_cursor(point, now);
+            }
         }
         let (actions, debug) = session.tick(now);
         for action in actions {
@@ -522,6 +567,9 @@ fn run_engine(
                     mode_override: session.mode_override(),
                     effective_dpi: session.effective_dpi(),
                     dpi_override: session.dpi_override(),
+                    layout: session.layout().clone(),
+                    display_target: session.display_target().clone(),
+                    active_display_idx: session.active_display_index(),
                     rx_hz: latest_rx_hz,
                     accessibility_ok: true,
                 });
@@ -670,12 +718,18 @@ fn open_backend(
     screen_explicit: bool,
 ) -> Result<Box<dyn PointerBackend>> {
     match kind {
-        BackendKind::Log => Ok(Box::new(LogBackend::new(screen))),
+        BackendKind::Log => {
+            if screen_explicit {
+                Ok(Box::new(LogBackend::new(screen)))
+            } else {
+                Ok(Box::new(LogBackend::with_layout(detect_host_layout())))
+            }
+        }
         BackendKind::Hyprland => {
             #[cfg(target_os = "linux")]
             {
-                let _ = screen_explicit;
-                Ok(Box::new(HyprlandBackend::connect()?))
+                let override_screen = screen_explicit.then_some(screen);
+                Ok(Box::new(HyprlandBackend::connect(override_screen)?))
             }
             #[cfg(not(target_os = "linux"))]
             {
@@ -698,8 +752,7 @@ fn open_backend(
         BackendKind::Uinput => {
             #[cfg(all(feature = "uinput", target_os = "linux"))]
             {
-                let _ = screen_explicit;
-                Ok(Box::new(UinputBackend::open(screen)?))
+                Ok(Box::new(UinputBackend::open(screen, screen_explicit)?))
             }
             #[cfg(not(all(feature = "uinput", target_os = "linux")))]
             {
@@ -786,6 +839,10 @@ fn parse_args(default_app_mode: bool) -> Result<Args> {
                 println!("wear-pointer {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
             }
+            "--list-displays" | "--displays" => {
+                print_detected_displays();
+                std::process::exit(0);
+            }
             "--debug" => debug = true,
             "--tray" => tray_flag = Some(true),
             "--no-tray" => tray_flag = Some(false),
@@ -843,6 +900,13 @@ fn parse_args(default_app_mode: bool) -> Result<Args> {
                 config.mode_override = Some(ControlMode::parse(&value).with_context(|| {
                     format!("--mode expects absolute, air, or touch, got {value:?}")
                 })?);
+            }
+            "--display" => {
+                let value = args
+                    .next()
+                    .context("--display auto|all|primary|1..N|<NAME>")?;
+                config.display_target = DisplayTarget::parse(&value)
+                    .map_err(|msg| anyhow::anyhow!("invalid --display {value:?}: {msg}"))?;
             }
             "--screen" => {
                 let value = args.next().context("--screen WIDTH x HEIGHT")?;
@@ -1004,6 +1068,33 @@ fn parse_screen(value: &str) -> Result<Screen> {
     Ok(Screen::new(w.parse()?, h.parse()?))
 }
 
+fn print_detected_displays() {
+    let layout = detect_host_layout();
+    let vb = layout.virtual_bounds();
+    println!(
+        "Detected {} display(s) — virtual desktop {:.0}x{:.0} at ({:.0},{:.0}):",
+        layout.len(),
+        vb.width,
+        vb.height,
+        vb.x,
+        vb.y,
+    );
+    let pc = layout.primary_display().bounds.center();
+    let total = layout.len();
+    for (i, d) in layout.displays().iter().enumerate() {
+        println!(
+            "  {}  id={} origin=({:.0},{:.0}) size={:.0}x{:.0}{}",
+            d.menu_label(i + 1, pc, total),
+            d.id,
+            d.bounds.x,
+            d.bounds.y,
+            d.bounds.width,
+            d.bounds.height,
+            if d.primary { " [primary]" } else { "" },
+        );
+    }
+}
+
 fn print_help() {
     println!(
         "\
@@ -1012,7 +1103,8 @@ wear-pointer {version} — desktop receiver & menu-bar / system-tray app
   wear-pointer [--tray | --no-tray] [--debug] [--role central|peripheral]
                [--backend hyprland|macos|windows|log|uinput]
                [--dpi {DEFAULT_DPI}] [--speed 1.6] [--steady 0.8] [--quick 0.01] [--dead-zone 0.0]
-               [--screen 1920x1080] [--adapter hci1] [--device MATCH] [--trace FILE] [--replay FILE]
+               [--display auto|all|primary|1..N|NAME] [--list-displays] [--screen 1920x1080]
+               [--adapter hci1] [--device MATCH] [--trace FILE] [--replay FILE]
                [--mode absolute|air|touch] [--version]
 
 Consumer GUI mode (Menu Bar on macOS, System Tray on Windows/Linux):
@@ -1021,10 +1113,18 @@ Consumer GUI mode (Menu Bar on macOS, System Tray on Windows/Linux):
   - Linux:   Run `wear-pointer-app` (or `install-linux.sh` to enable the user service)
 
 Developer / Terminal CLI mode:
+  wear-pointer --list-displays          # inspect detected multi-monitor layout & coordinates
   wear-pointer --debug --backend log    # verify BLE link & packet stats without moving cursor
   wear-pointer --debug                  # live cursor loop with 1 Hz telemetry in terminal
 
 --tray / --no-tray explicitly enables or disables the Menu Bar / System Tray icon.
+--display selects how multi-monitor desktops are targeted in Laser (absolute) mode
+          (Air & Touchpad modes always traverse all monitors seamlessly):
+      auto     anchor Center to the active monitor and cross seamlessly onto neighbors (default)
+      all      span the entire multi-monitor wall as one continuous laser canvas
+      1..N     lock Laser strictly to Display N (ideal for slide presentations on a projector)
+      NAME     lock Laser to a monitor by name (e.g. DP-1, Built-in, DISPLAY2, primary)
+--list-displays prints all detected displays and exits.
 --dpi sets pointer sensitivity in DPI (default: {DEFAULT_DPI} DPI = ±15.6° reach; 1000 DPI = ±25°).
       Also adjustable live from the watch UI or desktop tray menu (400..3200 DPI).
 --speed is WatchPointer's multiplier alias (speed = dpi / 1000).

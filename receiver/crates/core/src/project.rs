@@ -3,6 +3,7 @@
 //! Adapted from WatchPointer (Copyright (c) 2026 Umar Afzal, MIT).
 //! `y` grows downward, which matches Wayland and the usual desktop pointer.
 
+use crate::layout::Rect;
 use crate::packet::{BASE_DPI, MIN_DPI};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -40,6 +41,12 @@ pub fn reach_degrees(speed: f64) -> f64 {
 /// `left_deg` positive means the watch has turned left. `up_deg` positive
 /// means the 12 o'clock edge has tipped up. Both are clamped to ±80°.
 pub fn project_aim(left_deg: f64, up_deg: f64, screen: Screen, reach_deg: f64) -> (f64, f64) {
+    project_aim_rect(left_deg, up_deg, Rect::from_screen(screen), reach_deg)
+}
+
+/// Projects aim angles onto an arbitrary global desktop rectangle `rect`
+/// (supporting non-zero or negative multi-monitor origins).
+pub fn project_aim_rect(left_deg: f64, up_deg: f64, rect: Rect, reach_deg: f64) -> (f64, f64) {
     let reach = if reach_deg.abs() < 1e-3 {
         25.0
     } else {
@@ -47,9 +54,10 @@ pub fn project_aim(left_deg: f64, up_deg: f64, screen: Screen, reach_deg: f64) -
     };
     let h = (-left_deg).clamp(-80.0, 80.0).to_radians();
     let v = up_deg.clamp(-80.0, 80.0).to_radians();
-    let pixels_per_unit = screen.width / 2.0 / reach.to_radians().tan();
-    let x = screen.width / 2.0 + h.tan() * pixels_per_unit;
-    let y = screen.height / 2.0 - v.tan() / h.cos() * pixels_per_unit;
+    let pixels_per_unit = rect.width / 2.0 / reach.to_radians().tan();
+    let (cx, cy) = rect.center();
+    let x = cx + h.tan() * pixels_per_unit;
+    let y = cy - v.tan() / h.cos() * pixels_per_unit;
     (x, y)
 }
 

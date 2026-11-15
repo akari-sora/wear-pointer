@@ -9,15 +9,16 @@ use crate::autostart;
 use anyhow::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
-use wear_pointer_core::{ControlMode, DEFAULT_DPI};
+use wear_pointer_core::{ControlMode, DesktopLayout, DisplayTarget, DEFAULT_DPI};
 
 pub const DPI_PRESETS: [u16; 6] = [800, 1200, 1600, 2000, 2400, 3200];
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TrayCommand {
     SetPaused(bool),
     SetModeOverride(Option<ControlMode>),
     SetDpiOverride(Option<u16>),
+    SetDisplayTarget(DisplayTarget),
     Recenter,
     Quit,
 }
@@ -33,6 +34,9 @@ pub struct TraySnapshot {
     pub mode_override: Option<ControlMode>,
     pub effective_dpi: u16,
     pub dpi_override: Option<u16>,
+    pub layout: DesktopLayout,
+    pub display_target: DisplayTarget,
+    pub active_display_idx: usize,
     pub rx_hz: f64,
     pub accessibility_ok: bool,
 }
@@ -49,6 +53,9 @@ impl Default for TraySnapshot {
             mode_override: None,
             effective_dpi: DEFAULT_DPI,
             dpi_override: None,
+            layout: DesktopLayout::default(),
+            display_target: DisplayTarget::Auto,
+            active_display_idx: 0,
             rx_hz: 0.0,
             accessibility_ok: true,
         }
@@ -61,6 +68,14 @@ impl TraySnapshot {
             ControlMode::Absolute => "Laser (Absolute)",
             ControlMode::Air => "Air Mouse (Gyro)",
             ControlMode::Touch => "Touchpad",
+        }
+    }
+
+    pub fn selected_monitor_index(&self) -> Option<usize> {
+        match &self.display_target {
+            DisplayTarget::Monitor(idx) => Some(*idx),
+            DisplayTarget::Named(spec) => self.layout.resolve_named(spec),
+            DisplayTarget::Auto | DisplayTarget::SpanAll => None,
         }
     }
 
@@ -81,25 +96,51 @@ impl TraySnapshot {
 
     pub fn detail_line(&self) -> String {
         let mode = Self::mode_title(self.effective_mode);
+        let disp_note = if self.layout.is_multi() {
+            let total = self.layout.len();
+            if self.effective_mode.is_relative() {
+                format!(" · {total} Displays")
+            } else {
+                match &self.display_target {
+                    DisplayTarget::Auto => {
+                        let cur = self.active_display_idx.min(total - 1) + 1;
+                        format!(" · Auto (Display {cur}/{total})")
+                    }
+                    DisplayTarget::SpanAll => format!(" · All {total} Displays"),
+                    DisplayTarget::Monitor(idx) => format!(" · Display {} Locked", idx + 1),
+                    DisplayTarget::Named(spec) => match self.layout.resolve_named(spec) {
+                        Some(idx) => format!(" · Display {} Locked", idx + 1),
+                        None => format!(" · {spec}"),
+                    },
+                }
+            }
+        } else {
+            String::new()
+        };
         let source = if self.mode_override.is_some() || self.dpi_override.is_some() {
             " (Desktop override)"
         } else {
             ""
         };
-        format!("{mode} · {} DPI{source}", self.effective_dpi)
+        format!("{mode} · {} DPI{disp_note}{source}", self.effective_dpi)
     }
 
     pub fn tooltip_text(&self) -> String {
+        let disp = if self.layout.is_multi() {
+            format!(" · {} displays", self.layout.len())
+        } else {
+            String::new()
+        };
         if self.connected {
             let name = self.device_label.as_deref().unwrap_or("Watch");
             let state = if self.paused { "Paused" } else { "Active" };
             format!(
-                "Wear Pointer — {state} ({name}) · {} {} DPI",
+                "Wear Pointer — {state} ({name}) · {} {} DPI{disp}",
                 self.effective_mode.label(),
                 self.effective_dpi
             )
         } else {
-            "Wear Pointer — Waiting for watch (BLE)".to_string()
+            format!("Wear Pointer — Waiting for watch (BLE){disp}")
         }
     }
 }
@@ -162,6 +203,11 @@ const ACT_MODE_TOUCH: i32 = 203;
 const ACT_DPI_WATCH: i32 = 300;
 const ACT_DPI_BASE: i32 = 10_000;
 
+const ACT_DISPLAY_AUTO: i32 = 400;
+const ACT_DISPLAY_ALL: i32 = 401;
+const ACT_DISPLAY_BASE: i32 = 410;
+const MAX_MENU_DISPLAYS: usize = 32;
+
 fn handle_menu_action(action_id: i32, bridge: &TrayBridge) {
     match action_id {
         ACT_TOGGLE_PAUSE => {
@@ -196,6 +242,12 @@ fn handle_menu_action(action_id: i32, bridge: &TrayBridge) {
         ACT_MODE_AIR => bridge.send(TrayCommand::SetModeOverride(Some(ControlMode::Air))),
         ACT_MODE_TOUCH => bridge.send(TrayCommand::SetModeOverride(Some(ControlMode::Touch))),
         ACT_DPI_WATCH => bridge.send(TrayCommand::SetDpiOverride(None)),
+        ACT_DISPLAY_AUTO => bridge.send(TrayCommand::SetDisplayTarget(DisplayTarget::Auto)),
+        ACT_DISPLAY_ALL => bridge.send(TrayCommand::SetDisplayTarget(DisplayTarget::SpanAll)),
+        id if id >= ACT_DISPLAY_BASE && id < ACT_DISPLAY_BASE + (MAX_MENU_DISPLAYS as i32) => {
+            let idx = (id - ACT_DISPLAY_BASE) as usize;
+            bridge.send(TrayCommand::SetDisplayTarget(DisplayTarget::Monitor(idx)));
+        }
         id if id > ACT_DPI_BASE && id <= ACT_DPI_BASE + 6400 => {
             let dpi = (id - ACT_DPI_BASE) as u16;
             bridge.send(TrayCommand::SetDpiOverride(Some(dpi)));
@@ -471,6 +523,68 @@ mod macos_imp {
         let dpi_parent = make_item("Sensitivity (DPI)", None, "", handler, 0, true, false);
         let _: () = msg_send![dpi_parent, setSubmenu: dpi_menu];
         let _: () = msg_send![menu, addItem: dpi_parent];
+
+        // Target Display submenu (multi-monitor aware)
+        let disp_menu_alloc: *mut AnyObject = msg_send![menu_cls, alloc];
+        let disp_menu: *mut AnyObject =
+            msg_send![disp_menu_alloc, initWithTitle: nsstring("Target Display")];
+        let _: () = msg_send![disp_menu, setAutoenablesItems: Bool::NO];
+        let _: *mut AnyObject = msg_send![disp_menu, autorelease];
+
+        let _: () = msg_send![
+            disp_menu,
+            addItem: make_item(
+                "Auto (Cross All Displays)",
+                act,
+                "",
+                handler,
+                ACT_DISPLAY_AUTO,
+                true,
+                snap.display_target == DisplayTarget::Auto,
+            )
+        ];
+        if snap.layout.is_multi() {
+            let _: () = msg_send![
+                disp_menu,
+                addItem: make_item(
+                    "Span All Displays (Laser Wall)",
+                    act,
+                    "",
+                    handler,
+                    ACT_DISPLAY_ALL,
+                    true,
+                    snap.display_target == DisplayTarget::SpanAll,
+                )
+            ];
+        }
+        let _: () = msg_send![disp_menu, addItem: separator_item()];
+        let primary_center = snap.layout.primary_display().bounds.center();
+        let total_displays = snap.layout.len();
+        let locked_idx = snap.selected_monitor_index();
+        for (idx, disp) in snap
+            .layout
+            .displays()
+            .iter()
+            .enumerate()
+            .take(MAX_MENU_DISPLAYS)
+        {
+            let label = disp.menu_label(idx + 1, primary_center, total_displays);
+            let _: () = msg_send![
+                disp_menu,
+                addItem: make_item(
+                    &label,
+                    act,
+                    "",
+                    handler,
+                    ACT_DISPLAY_BASE + (idx as i32),
+                    true,
+                    locked_idx == Some(idx),
+                )
+            ];
+        }
+        let disp_parent = make_item("Target Display", None, "", handler, 0, true, false);
+        let _: () = msg_send![disp_parent, setSubmenu: disp_menu];
+        let _: () = msg_send![menu, addItem: disp_parent];
 
         let _: () = msg_send![menu, addItem: separator_item()];
 
@@ -813,6 +927,47 @@ mod windows_imp {
             let _ = AppendMenuW(menu, MF_POPUP, dpi_menu.0 as usize, PCWSTR(title.as_ptr()));
         }
 
+        if let Ok(disp_menu) = CreatePopupMenu() {
+            append_item(
+                disp_menu,
+                ACT_DISPLAY_AUTO as usize,
+                "Auto (Cross All Displays)",
+                true,
+                snap.display_target == DisplayTarget::Auto,
+            );
+            if snap.layout.is_multi() {
+                append_item(
+                    disp_menu,
+                    ACT_DISPLAY_ALL as usize,
+                    "Span All Displays (Laser Wall)",
+                    true,
+                    snap.display_target == DisplayTarget::SpanAll,
+                );
+            }
+            let _ = AppendMenuW(disp_menu, MF_SEPARATOR, 0, PCWSTR::null());
+            let primary_center = snap.layout.primary_display().bounds.center();
+            let total_displays = snap.layout.len();
+            let locked_idx = snap.selected_monitor_index();
+            for (idx, disp) in snap
+                .layout
+                .displays()
+                .iter()
+                .enumerate()
+                .take(MAX_MENU_DISPLAYS)
+            {
+                let label = disp.menu_label(idx + 1, primary_center, total_displays);
+                append_item(
+                    disp_menu,
+                    (ACT_DISPLAY_BASE + (idx as i32)) as usize,
+                    &label,
+                    true,
+                    locked_idx == Some(idx),
+                );
+            }
+            let title = wide_null("Target Display");
+            let _ = AppendMenuW(menu, MF_POPUP, disp_menu.0 as usize, PCWSTR(title.as_ptr()));
+        }
+
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         append_item(
             menu,
@@ -925,9 +1080,12 @@ mod windows_imp {
                 None,
             )?;
 
-            // Resource ID 1 embedded by build.rs via assets/app.rc
-            let hicon = LoadIconW(hinstance, PCWSTR(1usize as *const u16))
-                .or_else(|_| LoadIconW(None, IDI_APPLICATION))?;
+            // Resource ID 1 (MAKEINTRESOURCEW(1)) embedded by build.rs via assets/app.rc;
+            // ptr::dangling::<u16>() would equal 2 (align_of::<u16>()), not resource ID 1.
+            #[allow(clippy::manual_dangling_ptr)]
+            let icon_res = PCWSTR(1usize as *const u16);
+            let hicon =
+                LoadIconW(hinstance, icon_res).or_else(|_| LoadIconW(None, IDI_APPLICATION))?;
 
             let initial_tip = bridge.snapshot().tooltip_text();
             let mut nid = NOTIFYICONDATAW {
@@ -1125,6 +1283,41 @@ mod linux_imp {
             ));
         }
 
+        children.push(leaf(8, separator_props()));
+        children.push(leaf(
+            ACT_DISPLAY_AUTO,
+            menu_item_props(
+                "Display: Auto (Cross All)",
+                true,
+                Some("radio"),
+                snap.display_target == DisplayTarget::Auto,
+            ),
+        ));
+        if snap.layout.is_multi() {
+            children.push(leaf(
+                ACT_DISPLAY_ALL,
+                menu_item_props(
+                    "Display: Span All (Laser Wall)",
+                    true,
+                    Some("radio"),
+                    snap.display_target == DisplayTarget::SpanAll,
+                ),
+            ));
+        }
+        let primary_center = snap.layout.primary_display().bounds.center();
+        let total_displays = snap.layout.len();
+        let locked_idx = snap.selected_monitor_index();
+        for (idx, disp) in snap.layout.displays().iter().enumerate().take(16) {
+            let label = format!(
+                "Lock {}",
+                disp.menu_label(idx + 1, primary_center, total_displays)
+            );
+            children.push(leaf(
+                ACT_DISPLAY_BASE + (idx as i32),
+                menu_item_props(&label, true, Some("radio"), locked_idx == Some(idx)),
+            ));
+        }
+
         children.push(leaf(6, separator_props()));
         children.push(leaf(
             ACT_TOGGLE_AUTOSTART,
@@ -1299,13 +1492,14 @@ mod linux_imp {
 
         register_with_watcher(&conn, &bus_name);
 
-        let mut last_tip = String::new();
+        let mut last_snap: Option<TraySnapshot> = None;
         let mut revision: u32 = 1;
         while !bridge.should_stop() {
             let _ = conn.process(Duration::from_millis(250));
-            let tip = bridge.snapshot().tooltip_text();
-            if tip != last_tip {
-                last_tip = tip;
+            let snap = bridge.snapshot();
+            if last_snap.as_ref() != Some(&snap) {
+                let state = if snap.connected { "Active" } else { "Passive" };
+                last_snap = Some(snap);
                 revision = revision.wrapping_add(1);
                 let sig_tip = Message::new_signal(SNI_PATH, SNI_IFACE, "NewToolTip");
                 if let Ok(sig) = sig_tip {
@@ -1313,11 +1507,6 @@ mod linux_imp {
                 }
                 let sig_status = Message::new_signal(SNI_PATH, SNI_IFACE, "NewStatus");
                 if let Ok(sig) = sig_status {
-                    let state = if bridge.snapshot().connected {
-                        "Active"
-                    } else {
-                        "Passive"
-                    };
                     let _ = conn.send(sig.append1(state));
                 }
                 let sig_menu = Message::new_signal(MENU_PATH, MENU_IFACE, "LayoutUpdated");
@@ -1364,6 +1553,9 @@ mod tests {
         handle_menu_action(ACT_TOGGLE_PAUSE, &bridge);
         handle_menu_action(ACT_MODE_AIR, &bridge);
         handle_menu_action(ACT_DPI_BASE + 2400, &bridge);
+        handle_menu_action(ACT_DISPLAY_BASE + 1, &bridge);
+        handle_menu_action(ACT_DISPLAY_ALL, &bridge);
+        handle_menu_action(ACT_DISPLAY_AUTO, &bridge);
         handle_menu_action(ACT_RECENTER, &bridge);
         handle_menu_action(ACT_QUIT, &bridge);
 
@@ -1374,6 +1566,9 @@ mod tests {
                 TrayCommand::SetPaused(true),
                 TrayCommand::SetModeOverride(Some(ControlMode::Air)),
                 TrayCommand::SetDpiOverride(Some(2400)),
+                TrayCommand::SetDisplayTarget(DisplayTarget::Monitor(1)),
+                TrayCommand::SetDisplayTarget(DisplayTarget::SpanAll),
+                TrayCommand::SetDisplayTarget(DisplayTarget::Auto),
                 TrayCommand::Recenter,
                 TrayCommand::Quit,
             ]

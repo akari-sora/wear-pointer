@@ -12,7 +12,7 @@ fi
 
 BIN_SRC="$1"
 OUT_DIR="$2"
-VERSION="${3:-0.3.0}"
+VERSION="${3:-0.3.1}"
 SIGN_ID="${4:--}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -46,7 +46,7 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
     <key>CFBundleShortVersionString</key>
     <string>${VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>7</string>
+    <string>8</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSHighResolutionCapable</key>
@@ -70,7 +70,7 @@ APP_BIN="$SCRIPT_DIR/WearPointer.app/Contents/MacOS/wear-pointer"
 WANT_TRAY=0
 for arg in "$@"; do
     case "$arg" in
-        -h|--help|--version|-V|--replay)
+        -h|--help|--version|-V|--replay|--list-displays|--displays)
             exec "$APP_BIN" "$@"
             ;;
         --tray)

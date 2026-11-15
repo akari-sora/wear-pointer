@@ -29,17 +29,42 @@ pub use uinput_backend::UinputBackend;
 pub use windows::WindowsBackend;
 
 use anyhow::Result;
-use wear_pointer_core::{Button, Screen};
+use wear_pointer_core::{Button, DesktopLayout, Screen};
 
 pub trait PointerBackend {
     fn motion_absolute(&mut self, x: f64, y: f64) -> Result<()>;
     fn button(&mut self, button: Button, down: bool) -> Result<()>;
     fn scroll(&mut self, delta_px: i32) -> Result<()>;
     fn screen(&self) -> Screen;
-    /// Where the OS cursor is now, in the same coordinates as
-    /// `motion_absolute`, if the platform can say. The relative pointing modes
-    /// use it to continue from wherever a real mouse left the cursor.
+    /// Full multi-monitor desktop layout in global coordinates. Backends that
+    /// support display hotplug refresh this lazily when polled.
+    fn layout(&mut self) -> DesktopLayout {
+        DesktopLayout::single(self.screen())
+    }
+    /// Where the OS cursor is now, in the same global coordinates as
+    /// `motion_absolute`, if the platform can say.
     fn cursor_position(&self) -> Option<(f64, f64)> {
         None
+    }
+}
+
+/// Read-only probe of the host OS's active multi-monitor layout without
+/// opening cursor injection handles or triggering permission prompts.
+pub fn detect_host_layout() -> DesktopLayout {
+    #[cfg(target_os = "macos")]
+    {
+        MacosBackend::detect_layout()
+    }
+    #[cfg(target_os = "windows")]
+    {
+        WindowsBackend::detect_layout()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        hyprland::hypr_monitors_layout().unwrap_or_default()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        DesktopLayout::default()
     }
 }

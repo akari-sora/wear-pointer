@@ -6,8 +6,9 @@
 //! Umar Afzal, MIT).
 
 use crate::filter::OneEuroFilter;
+use crate::layout::{DesktopLayout, DisplayTarget, Rect};
 use crate::packet::{decode, Packet, DEFAULT_DPI, MAX_DPI, MIN_DPI};
-use crate::project::{dpi_to_speed, project_aim, reach_degrees, speed_to_dpi, Screen};
+use crate::project::{dpi_to_speed, project_aim_rect, reach_degrees, speed_to_dpi, Screen};
 use crate::relative::{gain_scale, AirMouse, ControlMode, TouchPad};
 use crate::stats::{LinkStats, WindowStats};
 use crate::{FRESH_GAP_S, MAX_FILTER_DT_S};
@@ -72,6 +73,8 @@ pub struct SessionConfig {
     /// out of line.
     pub dead_zone_deg: f64,
     pub screen: Screen,
+    /// Multi-monitor target policy for absolute (`LASER`) mode.
+    pub display_target: DisplayTarget,
     pub follow_tau_s: f64,
     pub min_move_px: f64,
     /// `--mode`: forces a pointing model and ignores the watch's choice.
@@ -87,6 +90,7 @@ impl Default for SessionConfig {
             quickness: 0.01,
             dead_zone_deg: 0.0,
             screen: Screen::new(1920.0, 1080.0),
+            display_target: DisplayTarget::Auto,
             follow_tau_s: crate::FOLLOW_TAU_S,
             min_move_px: crate::MIN_MOVE_PX,
             mode_override: None,
@@ -144,6 +148,8 @@ impl Follower {
 
 pub struct PointerSession {
     config: SessionConfig,
+    layout: DesktopLayout,
+    active_display_idx: usize,
     filter_x: OneEuroFilter,
     filter_y: OneEuroFilter,
     follower: Follower,
@@ -174,11 +180,15 @@ pub struct PointerSession {
 
 impl PointerSession {
     pub fn new(config: SessionConfig) -> Self {
+        let layout = DesktopLayout::single(config.screen);
+        let active_display_idx = layout.primary_index();
         let filter_x = OneEuroFilter::new(config.steady_hz, config.quickness);
         let filter_y = OneEuroFilter::new(config.steady_hz, config.quickness);
         let follower = Follower::new(config.follow_tau_s, config.min_move_px);
         Self {
             config,
+            layout,
+            active_display_idx,
             filter_x,
             filter_y,
             follower,
@@ -273,18 +283,51 @@ impl PointerSession {
         self.remote_info.as_ref()
     }
 
-    /// True when the receiver should report the OS cursor position through
-    /// [`Self::sync_external_cursor`], so the relative modes continue from
-    /// wherever a real mouse or trackpad left the cursor.
+    /// True when the receiver should report the OS cursor position at 30 Hz
+    /// through [`Self::sync_external_cursor`], so the relative modes continue
+    /// from wherever a real mouse or trackpad left the cursor.
     pub fn wants_external_cursor(&self) -> bool {
         self.link_open && self.effective_mode().is_relative()
     }
 
-    /// The OS cursor is at `point`. In a relative mode, while the watch is not
-    /// moving the cursor and nothing is held, adopt that position so the next
-    /// watch motion starts from it instead of yanking the cursor back.
+    /// True when absolute (`LASER`) mode is in `Auto` display selection on a
+    /// multi-monitor setup and the watch is currently paused, silent, or
+    /// disconnected — allowing lightweight tracking of which monitor the user's
+    /// physical mouse is on without touching an active laser stream.
+    pub fn wants_idle_display_sync(&self, local_s: f64) -> bool {
+        self.config.display_target == DisplayTarget::Auto
+            && self.layout.is_multi()
+            && (!self.link_open || self.is_paused() || self.is_silent(local_s))
+    }
+
+    fn is_silent(&self, local_s: f64) -> bool {
+        self.last_aim_local_s
+            .map(|t| local_s - t >= FRESH_GAP_S)
+            .unwrap_or(true)
+    }
+
+    /// The OS cursor is at `point`.
+    /// - In a relative mode, while the watch is not moving the cursor and
+    ///   nothing is held, adopt that position (including across negative-origin
+    ///   secondary monitors) so the next watch motion starts from it.
+    /// - In absolute (`LASER`) `Auto` mode while paused/silent/disconnected,
+    ///   update the active home display to whichever monitor holds the cursor.
     pub fn sync_external_cursor(&mut self, point: (f64, f64), local_s: f64) {
-        if !self.effective_mode().is_relative() || self.dragging {
+        if self.dragging {
+            return;
+        }
+        let point = self.layout.clamp_point(point.0, point.1);
+        if !self.effective_mode().is_relative() {
+            if !self.link_open || self.is_paused() || self.is_silent(local_s) {
+                let moved = self
+                    .follower
+                    .shown
+                    .map(|s| (s.0 - point.0).abs() + (s.1 - point.1).abs() > EXTERNAL_SYNC_PX)
+                    .unwrap_or(true);
+                if moved {
+                    self.active_display_idx = self.layout.display_index_at(point.0, point.1);
+                }
+            }
             return;
         }
         if let Some(t) = self.last_relative_move_s {
@@ -292,12 +335,12 @@ impl PointerSession {
                 return;
             }
         }
-        let point = self.clamp_to_screen(point);
         if let Some(shown) = self.follower.shown {
             if (shown.0 - point.0).abs() + (shown.1 - point.1).abs() <= EXTERNAL_SYNC_PX {
                 return;
             }
         }
+        self.active_display_idx = self.layout.display_index_at(point.0, point.1);
         self.pos = Some(point);
         self.target = Some(point);
         self.follower.snap(point);
@@ -306,8 +349,62 @@ impl PointerSession {
         self.remember(local_s, point);
     }
 
+    pub fn layout(&self) -> &DesktopLayout {
+        &self.layout
+    }
+
+    pub fn set_layout(&mut self, layout: DesktopLayout) {
+        let prev_id = self
+            .layout
+            .displays()
+            .get(self.active_display_idx)
+            .map(|d| d.id);
+        self.config.screen = layout.primary_display().bounds.to_screen();
+        self.active_display_idx = prev_id
+            .and_then(|id| layout.displays().iter().position(|d| d.id == id))
+            .unwrap_or_else(|| layout.primary_index());
+        self.layout = layout;
+        if let DisplayTarget::Monitor(idx) = self.config.display_target {
+            if idx < self.layout.len() {
+                self.active_display_idx = idx;
+            }
+        } else if let DisplayTarget::Named(ref spec) = self.config.display_target {
+            if let Some(idx) = self.layout.resolve_named(spec) {
+                self.active_display_idx = idx;
+            }
+        }
+    }
+
+    pub fn display_target(&self) -> &DisplayTarget {
+        &self.config.display_target
+    }
+
+    pub fn active_display_index(&self) -> usize {
+        self.active_display_idx.min(self.layout.len() - 1)
+    }
+
+    pub fn set_display_target(&mut self, target: DisplayTarget) -> Vec<CursorAction> {
+        match &target {
+            DisplayTarget::Monitor(idx) if *idx < self.layout.len() => {
+                self.active_display_idx = *idx;
+            }
+            DisplayTarget::Named(spec) => {
+                if let Some(idx) = self.layout.resolve_named(spec) {
+                    self.active_display_idx = idx;
+                }
+            }
+            _ => {}
+        }
+        self.config.display_target = target;
+        if self.link_open && !self.is_paused() && self.effective_mode() == ControlMode::Absolute {
+            self.center()
+        } else {
+            Vec::new()
+        }
+    }
+
     pub fn set_screen(&mut self, screen: Screen) {
-        self.config.screen = screen;
+        self.set_layout(DesktopLayout::single(screen));
     }
 
     pub fn screen(&self) -> Screen {
@@ -415,7 +512,7 @@ impl PointerSession {
                 self.last_aim_local_s = Some(local_s);
                 if self.effective_mode() == ControlMode::Touch {
                     let dt = usable_dt(timing.fresh, timing.watch_dt_s);
-                    let scale = gain_scale(self.config.screen.width, self.effective_dpi());
+                    let scale = gain_scale(self.active_relative_width(), self.effective_dpi());
                     let delta = self.touch.step(x_acc, y_acc, dt, scale);
                     self.push_relative(delta, local_s)
                 } else {
@@ -480,10 +577,7 @@ impl PointerSession {
         };
         self.last_tick_s = Some(local_s);
 
-        let silent = self
-            .last_aim_local_s
-            .map(|t| local_s - t >= FRESH_GAP_S)
-            .unwrap_or(true);
+        let silent = self.is_silent(local_s);
         if self.dragging && silent {
             self.dragging = false;
             actions.push(CursorAction::Button {
@@ -494,7 +588,9 @@ impl PointerSession {
 
         if !self.is_paused() && !silent {
             if let Some(target) = self.target {
-                if let Some(point) = self.follower.tick(target, dt) {
+                if let Some(raw_point) = self.follower.tick(target, dt) {
+                    let point = self.clamp_for_current_mode(raw_point);
+                    self.follower.snap(point);
                     self.remember(local_s, point);
                     actions.push(CursorAction::Move {
                         x: point.0,
@@ -506,6 +602,45 @@ impl PointerSession {
 
         let debug = self.debug_if_due(local_s);
         (actions, debug)
+    }
+
+    fn laser_projection_bounds(&self) -> (Rect, bool) {
+        match &self.config.display_target {
+            DisplayTarget::Auto => {
+                let idx = self.active_display_index();
+                (self.layout.displays()[idx].bounds, false)
+            }
+            DisplayTarget::SpanAll => (self.layout.virtual_bounds(), false),
+            DisplayTarget::Monitor(idx) => {
+                if *idx < self.layout.len() {
+                    (self.layout.displays()[*idx].bounds, true)
+                } else {
+                    (self.layout.primary_display().bounds, false)
+                }
+            }
+            DisplayTarget::Named(spec) => match self.layout.resolve_named(spec) {
+                Some(idx) => (self.layout.displays()[idx].bounds, true),
+                None => (self.layout.primary_display().bounds, false),
+            },
+        }
+    }
+
+    fn clamp_for_current_mode(&self, point: (f64, f64)) -> (f64, f64) {
+        if self.effective_mode() == ControlMode::Absolute {
+            let (rect, lock_single) = self.laser_projection_bounds();
+            if lock_single {
+                return rect.clamp_continuous(point.0, point.1);
+            }
+        }
+        self.layout.clamp_point(point.0, point.1)
+    }
+
+    fn active_relative_width(&self) -> f64 {
+        let cur = self
+            .pos
+            .or(self.follower.shown)
+            .unwrap_or_else(|| self.center_point());
+        self.layout.display_at(cur.0, cur.1).bounds.width
     }
 
     fn push_aim(
@@ -527,16 +662,14 @@ impl PointerSession {
             }
         }
         self.last_aim_deg = Some((left, up));
-        let projected = project_aim(
-            left,
-            up,
-            self.config.screen,
-            reach_degrees(self.effective_speed()),
-        );
-        let raw = (
-            projected.0.clamp(0.0, self.config.screen.width.max(0.0)),
-            projected.1.clamp(0.0, self.config.screen.height.max(0.0)),
-        );
+        let (proj_rect, lock_single) = self.laser_projection_bounds();
+        let projected =
+            project_aim_rect(left, up, proj_rect, reach_degrees(self.effective_speed()));
+        let raw = if lock_single {
+            proj_rect.clamp_continuous(projected.0, projected.1)
+        } else {
+            self.layout.clamp_point(projected.0, projected.1)
+        };
         let dt = match watch_dt_s {
             Some(dt) if dt > 0.0 && dt < MAX_FILTER_DT_S => dt,
             _ => 0.0,
@@ -568,7 +701,7 @@ impl PointerSession {
     ) -> Vec<CursorAction> {
         self.last_aim_local_s = Some(local_s);
         let dt = usable_dt(fresh, watch_dt_s);
-        let scale = gain_scale(self.config.screen.width, self.effective_dpi());
+        let scale = gain_scale(self.active_relative_width(), self.effective_dpi());
         let delta = self.air.step(
             f64::from(left_cdeg) / 100.0,
             f64::from(up_cdeg) / 100.0,
@@ -587,7 +720,10 @@ impl PointerSession {
             .pos
             .or(self.follower.shown)
             .unwrap_or_else(|| self.center_point());
-        let next = self.clamp_to_screen((start.0 + delta.0, start.1 + delta.1));
+        let next = self
+            .layout
+            .clamp_point(start.0 + delta.0, start.1 + delta.1);
+        self.active_display_idx = self.layout.display_index_at(next.0, next.1);
         self.pos = Some(next);
         self.target = Some(next);
         self.last_relative_move_s = Some(local_s);
@@ -601,15 +737,11 @@ impl PointerSession {
         self.last_aim_deg = None;
         self.air.reset();
         self.touch.reset();
+        if let Some(shown) = self.follower.shown {
+            self.active_display_idx = self.layout.display_index_at(shown.0, shown.1);
+        }
         self.pos = self.follower.shown;
         self.target = self.follower.shown;
-    }
-
-    fn clamp_to_screen(&self, point: (f64, f64)) -> (f64, f64) {
-        (
-            point.0.clamp(0.0, self.config.screen.width.max(0.0)),
-            point.1.clamp(0.0, self.config.screen.height.max(0.0)),
-        )
     }
 
     fn center(&mut self) -> Vec<CursorAction> {
@@ -724,10 +856,18 @@ impl PointerSession {
     }
 
     fn center_point(&self) -> (f64, f64) {
-        (
-            self.config.screen.width / 2.0,
-            self.config.screen.height / 2.0,
-        )
+        if self.effective_mode() == ControlMode::Absolute {
+            let (rect, lock_single) = self.laser_projection_bounds();
+            let (cx, cy) = rect.center();
+            if lock_single {
+                rect.clamp_continuous(cx, cy)
+            } else {
+                self.layout.clamp_point(cx, cy)
+            }
+        } else {
+            let idx = self.active_display_index();
+            self.layout.displays()[idx].bounds.center()
+        }
     }
 
     fn remember(&mut self, time: f64, point: (f64, f64)) {
@@ -1389,5 +1529,125 @@ mod tests {
         assert!(s.tick(0.03).0.is_empty());
         s.set_local_paused(false);
         assert!(!s.is_paused());
+    }
+
+    fn dual_negative_left_layout() -> DesktopLayout {
+        use crate::layout::Display;
+        DesktopLayout::new(vec![
+            Display::new(10, "Main", Rect::new(0.0, 0.0, 2000.0, 1000.0), true),
+            Display::new(
+                20,
+                "Built-in",
+                Rect::new(-1500.0, 100.0, 1500.0, 900.0),
+                false,
+            ),
+        ])
+    }
+
+    #[test]
+    fn air_and_touch_cross_into_negative_origin_secondary_monitor_and_click() {
+        let mut s = session();
+        s.set_layout(dual_negative_left_layout());
+        s.push_packet(&mode(0, MODE_AIR), 0.0);
+        // External mouse is at (80, 500) near left edge of Main; user turns wrist left into Built-in.
+        s.sync_external_cursor((80.0, 500.0), 0.5);
+        let mut left: i16 = 0;
+        for i in 0..35u16 {
+            left += 80; // turning left at 80 deg/s
+            let us = 1_000_000 + 10_000 * u32::from(i + 1);
+            s.push_packet(&aim(i + 1, us, left, 0), 1.0 + f64::from(i + 1) * 0.01);
+        }
+        let shown = run_ticks(&mut s, 1.0, 0.45).expect("crossed onto negative monitor");
+        assert!(
+            shown.0 < -200.0,
+            "expected cursor well inside negative left monitor, got {shown:?}"
+        );
+        assert_eq!(s.active_display_index(), 1);
+
+        // Clicking on the negative-origin monitor stays on that monitor (no clamp to 0!).
+        let click = encode(&Packet::LeftClick {
+            header: header(KIND_LEFT_CLICK, 50, 1_340_000),
+        });
+        let click_actions = s.push_packet(&click, 1.46);
+        match click_actions.first() {
+            Some(CursorAction::Move { x, y }) => {
+                assert!(*x < -200.0, "click jumped back to {x},{y}");
+            }
+            other => panic!("expected move before button down, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn laser_auto_reaches_adjacent_negative_monitor_and_follows_idle_mouse() {
+        let mut s = session();
+        s.set_layout(dual_negative_left_layout());
+
+        // Centered on Main (1000, 500) at 0 deg; turning 25 deg left crosses past x=0 into Built-in!
+        let m0 = s.push_packet(&aim(1, 0, 0, 0), 0.0);
+        assert_eq!(
+            m0,
+            vec![CursorAction::Move {
+                x: 1000.0,
+                y: 500.0
+            }]
+        );
+        let m_left = s.push_packet(&aim(2, 500_000, 2500, 0), 0.5);
+        match m_left[0] {
+            CursorAction::Move { x, y } => {
+                assert!(
+                    x < -300.0,
+                    "expected laser to enter negative monitor, got {x}"
+                );
+                assert!((y - 500.0).abs() < 1.0);
+            }
+            other => panic!("expected move, got {other:?}"),
+        }
+
+        // User moves physical mouse onto Built-in (-750, 550) while watch is silent, then taps Center:
+        assert!(s.wants_idle_display_sync(1.5));
+        s.sync_external_cursor((-750.0, 550.0), 1.5);
+        assert_eq!(s.active_display_index(), 1);
+        let centered = s.center_now();
+        assert_eq!(
+            centered,
+            vec![CursorAction::Move {
+                x: -750.0,
+                y: 550.0
+            }]
+        );
+    }
+
+    #[test]
+    fn laser_monitor_lock_and_span_all_targets_work_as_expected() {
+        let mut s = session();
+        s.set_layout(dual_negative_left_layout());
+
+        // Lock strictly to Monitor 2 (Built-in: -1500..0, 100..1000):
+        let lock_actions = s.set_display_target(DisplayTarget::Monitor(1));
+        assert_eq!(
+            lock_actions,
+            vec![CursorAction::Move {
+                x: -750.0,
+                y: 550.0
+            }]
+        );
+        // Turning 75 deg right tries to shoot onto Main, but Monitor(1) lock keeps x <= 0.0!
+        let clamped_right = s.push_packet(&aim(1, 0, -7500, 0), 0.0);
+        assert_eq!(clamped_right, vec![CursorAction::Move { x: 0.0, y: 550.0 }]);
+
+        // SpanAll spans [-1500, 2000] (width 3500, center x = 250):
+        let span_actions = s.set_display_target(DisplayTarget::SpanAll);
+        assert_eq!(
+            span_actions,
+            vec![CursorAction::Move { x: 250.0, y: 500.0 }]
+        );
+        let far_left = s.push_packet(&aim(2, 500_000, 7500, 0), 0.5);
+        assert_eq!(
+            far_left,
+            vec![CursorAction::Move {
+                x: -1500.0,
+                y: 500.0
+            }]
+        );
     }
 }

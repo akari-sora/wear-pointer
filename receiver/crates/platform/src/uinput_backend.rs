@@ -10,11 +10,11 @@ use crate::PointerBackend;
 use anyhow::{Context, Result};
 use evdev::uinput::VirtualDevice;
 use evdev::{AttributeSet, EventType, InputEvent, Key, RelativeAxisType};
-use wear_pointer_core::{Button, Screen};
+use wear_pointer_core::{Button, DesktopLayout, Screen};
 
 pub struct UinputBackend {
     device: VirtualDevice,
-    screen: Screen,
+    layout: DesktopLayout,
     last: Option<(f64, f64)>,
     pending_x: f64,
     pending_y: f64,
@@ -22,7 +22,7 @@ pub struct UinputBackend {
 }
 
 impl UinputBackend {
-    pub fn open(screen: Screen) -> Result<Self> {
+    pub fn open(screen: Screen, screen_explicit: bool) -> Result<Self> {
         let mut keys = AttributeSet::<Key>::new();
         keys.insert(Key::BTN_LEFT);
         keys.insert(Key::BTN_RIGHT);
@@ -37,10 +37,18 @@ impl UinputBackend {
             .with_relative_axes(&axes)?
             .build()
             .context("creating the uinput device")?;
-        eprintln!("wear-pointer: uinput relative mouse. The first aim sample sets the origin.");
+        let layout = if screen_explicit {
+            DesktopLayout::single(screen)
+        } else {
+            crate::hyprland::hypr_monitors_layout().unwrap_or_else(|| DesktopLayout::single(screen))
+        };
+        eprintln!(
+            "wear-pointer: uinput relative mouse ({}). The first aim sample sets the origin.",
+            layout.summary()
+        );
         Ok(Self {
             device,
-            screen,
+            layout,
             last: None,
             pending_x: 0.0,
             pending_y: 0.0,
@@ -111,6 +119,10 @@ impl PointerBackend for UinputBackend {
     }
 
     fn screen(&self) -> Screen {
-        self.screen
+        self.layout.primary_display().bounds.to_screen()
+    }
+
+    fn layout(&mut self) -> DesktopLayout {
+        self.layout.clone()
     }
 }

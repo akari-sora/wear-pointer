@@ -1,39 +1,84 @@
-//! Hyprland / wlroots virtual pointer.
+//! Hyprland / wlroots virtual pointer with full multi-monitor support.
 //!
 //! Uses `zwlr_virtual_pointer_v1` from wlr-protocols (Copyright © 2019 Josef
-//! Gajdusek, MIT) via wayland-protocols-wlr. Absolute motion is in the
-//! coordinate space reported by `wl_output`. Hyprland advertises this global
-//! by default.
+//! Gajdusek, MIT) via wayland-protocols-wlr. Queries Hyprland's IPC socket
+//! (`monitors` / `cursorpos`) for exact per-monitor logical coordinates
+//! (including HiDPI scaling, rotation transforms, and negative offsets) and
+//! falls back to aggregating advertised `wl_output` globals on other wlroots
+//! compositors.
 
 use crate::PointerBackend;
 use anyhow::{anyhow, Context, Result};
+use std::time::{Duration, Instant};
 use wayland_client::protocol::wl_output::{self, Mode, WlOutput};
 use wayland_client::protocol::wl_pointer::{Axis, AxisSource, ButtonState};
 use wayland_client::protocol::wl_registry;
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, WEnum};
 use wayland_protocols_wlr::virtual_pointer::v1::client::zwlr_virtual_pointer_manager_v1::ZwlrVirtualPointerManagerV1;
 use wayland_protocols_wlr::virtual_pointer::v1::client::zwlr_virtual_pointer_v1::ZwlrVirtualPointerV1;
-use wear_pointer_core::{Button, Screen};
+use wear_pointer_core::{Button, DesktopLayout, Display, Rect, Screen};
 
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
+const LAYOUT_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
+
+#[derive(Clone, Debug)]
+struct WlOutputEntry {
+    global_name: u32,
+    name: String,
+    width: f64,
+    height: f64,
+    scale: i32,
+    saw_current: bool,
+}
 
 struct App {
     pointer: Option<ZwlrVirtualPointerV1>,
-    screen: Screen,
-    saw_mode: bool,
+    outputs: Vec<WlOutputEntry>,
+}
+
+impl App {
+    fn fallback_layout(&self) -> Option<DesktopLayout> {
+        if self.outputs.is_empty() {
+            return None;
+        }
+        let mut sorted = self.outputs.clone();
+        sorted.sort_by_key(|o| o.global_name);
+        let mut cursor_x = 0.0;
+        let mut displays = Vec::with_capacity(sorted.len());
+        for (i, out) in sorted.into_iter().enumerate() {
+            let scale = f64::from(out.scale.max(1));
+            let lw = (out.width / scale).round().max(1.0);
+            let lh = (out.height / scale).round().max(1.0);
+            let label = if out.name.is_empty() {
+                format!("Output-{}", i + 1)
+            } else {
+                out.name
+            };
+            displays.push(Display::new(
+                out.global_name,
+                label,
+                Rect::new(cursor_x, 0.0, lw, lh),
+                i == 0,
+            ));
+            cursor_x += lw;
+        }
+        Some(DesktopLayout::new(displays))
+    }
 }
 
 pub struct HyprlandBackend {
     conn: Connection,
     queue: EventQueue<App>,
     app: App,
-    origin: (f64, f64),
+    layout: DesktopLayout,
+    fixed_override: bool,
+    last_refresh: Instant,
     pointer: ZwlrVirtualPointerV1,
 }
 
 impl HyprlandBackend {
-    pub fn connect() -> Result<Self> {
+    pub fn connect(screen_override: Option<Screen>) -> Result<Self> {
         let conn = Connection::connect_to_env().context(
             "connecting to Wayland. Run this inside the Hyprland session, or pass --backend log",
         )?;
@@ -42,8 +87,7 @@ impl HyprlandBackend {
         let _registry = conn.display().get_registry(&qh, ());
         let mut app = App {
             pointer: None,
-            screen: Screen::new(1920.0, 1080.0),
-            saw_mode: false,
+            outputs: Vec::new(),
         };
         queue.roundtrip(&mut app).context("wayland roundtrip")?;
         queue
@@ -55,30 +99,45 @@ impl HyprlandBackend {
                  Hyprland provides it. Use --backend log, or rebuild with --features uinput."
             )
         })?;
-        let mut origin = (0.0, 0.0);
-        if let Some((ox, oy, logical)) = hypr_layout() {
-            origin = (ox, oy);
-            app.screen = logical;
-            app.saw_mode = true;
-        }
-        if !app.saw_mode {
-            eprintln!(
-                "wear-pointer: no wl_output mode yet, assuming {:.0}x{:.0}",
-                app.screen.width, app.screen.height
-            );
-        } else {
-            eprintln!(
-                "wear-pointer: hyprland pointer, screen {:.0}x{:.0}",
-                app.screen.width, app.screen.height
-            );
-        }
+
+        let (layout, fixed_override) = match screen_override {
+            Some(screen) => (DesktopLayout::single(screen), true),
+            None => {
+                if let Some(hypr) = hypr_monitors_layout() {
+                    (hypr, false)
+                } else if let Some(wl) = app.fallback_layout() {
+                    (wl, false)
+                } else {
+                    eprintln!("wear-pointer: no wl_output mode yet, assuming 1920x1080");
+                    (DesktopLayout::single(Screen::new(1920.0, 1080.0)), false)
+                }
+            }
+        };
+
+        eprintln!("wear-pointer: hyprland pointer, {}", layout.summary());
+
         Ok(Self {
             conn,
             queue,
             app,
-            origin,
+            layout,
+            fixed_override,
+            last_refresh: Instant::now(),
             pointer,
         })
+    }
+
+    fn refresh_if_due(&mut self) {
+        if self.fixed_override || self.last_refresh.elapsed() < LAYOUT_REFRESH_INTERVAL {
+            return;
+        }
+        self.last_refresh = Instant::now();
+        let _ = self.queue.dispatch_pending(&mut self.app);
+        if let Some(hypr) = hypr_monitors_layout() {
+            self.layout = hypr;
+        } else if let Some(wl) = self.app.fallback_layout() {
+            self.layout = wl;
+        }
     }
 
     fn stamp(&mut self) -> u32 {
@@ -93,11 +152,14 @@ impl HyprlandBackend {
 
 impl PointerBackend for HyprlandBackend {
     fn motion_absolute(&mut self, x: f64, y: f64) -> Result<()> {
-        let screen = self.app.screen;
-        let extent_x = (screen.width.max(1.0) * 16.0).round() as u32;
-        let extent_y = (screen.height.max(1.0) * 16.0).round() as u32;
-        let px = (x * 16.0).round().clamp(0.0, f64::from(extent_x)) as u32;
-        let py = (y * 16.0).round().clamp(0.0, f64::from(extent_y)) as u32;
+        let (cx, cy) = self.layout.clamp_pixel(x, y);
+        let vb = self.layout.virtual_bounds();
+        let extent_x = (vb.width.max(1.0) * 16.0).round() as u32;
+        let extent_y = (vb.height.max(1.0) * 16.0).round() as u32;
+        let max_px = f64::from(extent_x.saturating_sub(1));
+        let max_py = f64::from(extent_y.saturating_sub(1));
+        let px = ((cx - vb.x) * 16.0).round().clamp(0.0, max_px) as u32;
+        let py = ((cy - vb.y) * 16.0).round().clamp(0.0, max_py) as u32;
         let time = self.stamp();
         self.pointer
             .motion_absolute(time, px, py, extent_x, extent_y);
@@ -131,14 +193,18 @@ impl PointerBackend for HyprlandBackend {
     }
 
     fn screen(&self) -> Screen {
-        self.app.screen
+        self.layout.primary_display().bounds.to_screen()
     }
 
-    /// Asks Hyprland's IPC socket (`cursorpos`) and converts layout coordinates
-    /// into this backend's logical output bounding box.
+    fn layout(&mut self) -> DesktopLayout {
+        self.refresh_if_due();
+        self.layout.clone()
+    }
+
+    /// Asks Hyprland's IPC socket (`cursorpos`), which reports global layout
+    /// coordinates matching [`DesktopLayout`] 1:1.
     fn cursor_position(&self) -> Option<(f64, f64)> {
-        let (x, y) = hypr_cursorpos()?;
-        Some((x - self.origin.0, y - self.origin.1))
+        hypr_cursorpos()
     }
 }
 
@@ -162,62 +228,86 @@ impl Dispatch<wl_registry::WlRegistry, ()> for App {
         _: &Connection,
         qh: &QueueHandle<Self>,
     ) {
-        let wl_registry::Event::Global {
-            name,
-            interface,
-            version,
-        } = event
-        else {
-            return;
-        };
-        match interface.as_str() {
-            "zwlr_virtual_pointer_manager_v1" => {
-                let manager = registry.bind::<ZwlrVirtualPointerManagerV1, _, _>(
-                    name,
-                    version.min(2),
-                    qh,
-                    (),
-                );
-                state.pointer = Some(manager.create_virtual_pointer(
-                    None::<&wayland_client::protocol::wl_seat::WlSeat>,
-                    qh,
-                    (),
-                ));
-            }
-            "wl_output" => {
-                registry.bind::<WlOutput, _, _>(name, version.min(4), qh, ());
+        match event {
+            wl_registry::Event::Global {
+                name,
+                interface,
+                version,
+            } => match interface.as_str() {
+                "zwlr_virtual_pointer_manager_v1" => {
+                    let manager = registry.bind::<ZwlrVirtualPointerManagerV1, _, _>(
+                        name,
+                        version.min(2),
+                        qh,
+                        (),
+                    );
+                    state.pointer = Some(manager.create_virtual_pointer(
+                        None::<&wayland_client::protocol::wl_seat::WlSeat>,
+                        qh,
+                        (),
+                    ));
+                }
+                "wl_output" => {
+                    state.outputs.push(WlOutputEntry {
+                        global_name: name,
+                        name: String::new(),
+                        width: 1920.0,
+                        height: 1080.0,
+                        scale: 1,
+                        saw_current: false,
+                    });
+                    registry.bind::<WlOutput, _, _>(name, version.min(4), qh, name);
+                }
+                _ => {}
+            },
+            wl_registry::Event::GlobalRemove { name } => {
+                state.outputs.retain(|o| o.global_name != name);
             }
             _ => {}
         }
     }
 }
 
-impl Dispatch<WlOutput, ()> for App {
+impl Dispatch<WlOutput, u32> for App {
     fn event(
         state: &mut Self,
         _: &WlOutput,
         event: wl_output::Event,
-        _: &(),
+        global_name: &u32,
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        if let wl_output::Event::Mode {
-            flags,
-            width,
-            height,
-            ..
-        } = event
-        {
-            // Current mode bit is 1. Take the first current mode as the
-            // absolute-motion extent. Multi-monitor layout is a follow-up.
-            let current = match flags {
-                WEnum::Value(mode) => mode.contains(Mode::Current),
-                WEnum::Unknown(raw) => raw & Mode::Current.bits() != 0,
-            };
-            if current || !state.saw_mode {
-                state.screen = Screen::new(width as f64, height as f64);
-                state.saw_mode = state.saw_mode || current;
+        let Some(entry) = state
+            .outputs
+            .iter_mut()
+            .find(|o| o.global_name == *global_name)
+        else {
+            return;
+        };
+        match event {
+            wl_output::Event::Mode {
+                flags,
+                width,
+                height,
+                ..
+            } => {
+                let current = match flags {
+                    WEnum::Value(mode) => mode.contains(Mode::Current),
+                    WEnum::Unknown(raw) => raw & Mode::Current.bits() != 0,
+                };
+                if current || !entry.saw_current {
+                    entry.width = f64::from(width.max(1));
+                    entry.height = f64::from(height.max(1));
+                    entry.saw_current = entry.saw_current || current;
+                }
             }
+            wl_output::Event::Scale { factor } => {
+                entry.scale = factor.max(1);
+            }
+            wl_output::Event::Name { name } => {
+                entry.name = name;
+            }
+            _ => {}
         }
     }
 }
@@ -246,10 +336,9 @@ impl Dispatch<ZwlrVirtualPointerV1, ()> for App {
     }
 }
 
-fn hypr_request(cmd: &[u8]) -> Option<String> {
+pub(crate) fn hypr_request(cmd: &[u8]) -> Option<String> {
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
-    use std::time::Duration;
     let signature = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok()?;
     let runtime = std::env::var("XDG_RUNTIME_DIR").ok()?;
     let path = format!("{runtime}/hypr/{signature}/.socket.sock");
@@ -272,33 +361,51 @@ fn hypr_cursorpos() -> Option<(f64, f64)> {
     Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
 }
 
-fn hypr_layout() -> Option<(f64, f64, Screen)> {
+pub(crate) fn hypr_monitors_layout() -> Option<DesktopLayout> {
     let reply = hypr_request(b"monitors")?;
-    parse_hypr_layout(&reply)
+    parse_hypr_monitors(&reply)
 }
 
-/// Parses `hyprctl monitors` plain-text blocks into `(origin_x, origin_y, logical_screen)`
-/// so HiDPI fractional scaling (e.g. `1920x1200` at `scale: 1.5` -> `1280x800`)
-/// matches `cursorpos` and `zwlr_virtual_pointer_v1` layout coordinates 1:1.
-fn parse_hypr_layout(text: &str) -> Option<(f64, f64, Screen)> {
-    let mut min_x = f64::INFINITY;
-    let mut min_y = f64::INFINITY;
-    let mut max_x = f64::NEG_INFINITY;
-    let mut max_y = f64::NEG_INFINITY;
-    let mut found = false;
+fn parse_monitor_header(first_line: &str, fallback_id: u32) -> (u32, String) {
+    let rest = first_line
+        .trim()
+        .strip_prefix("Monitor ")
+        .unwrap_or(first_line.trim())
+        .trim_end_matches(':');
+    if let Some((name_part, id_part)) = rest.rsplit_once("(ID ") {
+        let id = id_part
+            .trim_end_matches(')')
+            .trim()
+            .parse::<u32>()
+            .unwrap_or(fallback_id);
+        return (id, name_part.trim().to_string());
+    }
+    (fallback_id, rest.trim().to_string())
+}
 
-    for block in text
-        .split("\nMonitor ")
-        .map(str::trim)
-        .filter(|b| !b.is_empty())
-    {
+/// Parses `hyprctl monitors` plain-text blocks into a full [`DesktopLayout`]
+/// preserving each monitor's ID, connector name (`DP-1`, `eDP-1`, …), HiDPI
+/// logical size, 90°/270° rotation transform, and signed `(x, y)` coordinates.
+pub(crate) fn parse_hypr_monitors(text: &str) -> Option<DesktopLayout> {
+    let mut displays: Vec<Display> = Vec::new();
+    let mut block_idx = 0u32;
+
+    for raw_block in text.split("\nMonitor ") {
+        let trimmed = raw_block.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let header_line = trimmed.lines().next().unwrap_or("");
+        let (id, name) = parse_monitor_header(header_line, block_idx);
+        block_idx += 1;
+
         let mut mode_wh: Option<(f64, f64)> = None;
         let mut pos_xy: Option<(f64, f64)> = None;
         let mut scale = 1.0_f64;
         let mut transform = 0_u32;
         let mut disabled = false;
 
-        for line in block.lines().map(str::trim) {
+        for line in trimmed.lines().skip(1).map(str::trim) {
             if mode_wh.is_none() {
                 if let Some((res_hz, at_xy)) = line.split_once(" at ") {
                     if let Some((res, _)) = res_hz.split_once('@') {
@@ -341,18 +448,31 @@ fn parse_hypr_layout(text: &str) -> Option<(f64, f64, Screen)> {
             }
             let lw = (w / scale).round().max(1.0);
             let lh = (h / scale).round().max(1.0);
-            min_x = min_x.min(x);
-            min_y = min_y.min(y);
-            max_x = max_x.max(x + lw);
-            max_y = max_y.max(y + lh);
-            found = true;
+            let at_origin = x.abs() < 0.5 && y.abs() < 0.5;
+            displays.push(Display::new(id, name, Rect::new(x, y, lw, lh), at_origin));
         }
     }
 
-    if !found || max_x <= min_x || max_y <= min_y {
+    if displays.is_empty() {
         return None;
     }
-    Some((min_x, min_y, Screen::new(max_x - min_x, max_y - min_y)))
+
+    // Ensure stable ordering across focus shifts: origin `(0, 0)` monitor first
+    // (or lowest monitor ID if none sits at `(0, 0)`), then ascending ID.
+    if !displays.iter().any(|d| d.primary) {
+        if let Some(min_id) = displays.iter().map(|d| d.id).min() {
+            if let Some(first) = displays.iter_mut().find(|d| d.id == min_id) {
+                first.primary = true;
+            }
+        }
+    }
+    displays.sort_by(|a, b| {
+        b.primary
+            .cmp(&a.primary)
+            .then_with(|| a.id.cmp(&b.id))
+            .then_with(|| a.bounds.x.total_cmp(&b.bounds.x))
+    });
+    Some(DesktopLayout::new(displays))
 }
 
 #[cfg(test)]
@@ -369,13 +489,17 @@ Monitor eDP-1 (ID 0):
 \ttransform: 0
 \tdisabled: false
 ";
-        let (ox, oy, screen) = parse_hypr_layout(sample).expect("layout");
-        assert_eq!((ox, oy), (0.0, 0.0));
-        assert_eq!((screen.width, screen.height), (1280.0, 800.0));
+        let layout = parse_hypr_monitors(sample).expect("layout");
+        assert_eq!(layout.len(), 1);
+        assert_eq!(layout.displays()[0].name, "eDP-1");
+        assert_eq!(
+            layout.displays()[0].bounds,
+            Rect::new(0.0, 0.0, 1280.0, 800.0)
+        );
     }
 
     #[test]
-    fn parses_rotated_and_offset_multi_monitor_layout() {
+    fn parses_rotated_and_negative_offset_multi_monitor_layout() {
         let sample = "\
 Monitor DP-1 (ID 0):
 \t2560x1440@144.00 at 0x0
@@ -389,8 +513,18 @@ Monitor HDMI-A-1 (ID 1):
 \ttransform: 1
 \tdisabled: false
 ";
-        let (ox, oy, screen) = parse_hypr_layout(sample).expect("layout");
-        assert_eq!((ox, oy), (-1080.0, 0.0));
-        assert_eq!((screen.width, screen.height), (3640.0, 1920.0));
+        let layout = parse_hypr_monitors(sample).expect("layout");
+        assert_eq!(layout.len(), 2);
+        assert_eq!(layout.displays()[0].name, "DP-1");
+        assert!(layout.displays()[0].primary);
+        assert_eq!(layout.displays()[1].name, "HDMI-A-1");
+        assert_eq!(
+            layout.displays()[1].bounds,
+            Rect::new(-1080.0, 0.0, 1080.0, 1920.0)
+        );
+        assert_eq!(
+            layout.virtual_bounds(),
+            Rect::new(-1080.0, 0.0, 3640.0, 1920.0)
+        );
     }
 }

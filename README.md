@@ -37,16 +37,26 @@ Physical hardware measurements across all three desktop OSes (`100.4–102.6 pkt
 
 Download the installer for your OS from [GitLab Releases](https://gitlab.com/aa22396584/wear-pointer/-/releases) and keep the watch on **`BLE APP`** (the default):
 
-- **macOS (`WearPointer-v0.3.0-aarch64-macos.dmg`)**:
+- **macOS (`WearPointer-v0.3.1-aarch64-macos.dmg`)**:
   1. Open the `.dmg` and drag **`WearPointer.app`** into **`Applications`**. (If downloaded with Safari/Chrome, clear Gatekeeper quarantine once: `xattr -dr com.apple.quarantine /Applications/WearPointer.app`.)
   2. Double-click **`WearPointer`** in `Applications` — a crosshair icon appears in the **top-right macOS Menu Bar** (no Dock clutter).
-  3. Grant **Bluetooth** and **Accessibility** when prompted (or click **Grant Accessibility Permission…** inside the Menu Bar menu). From the Menu Bar you can see watch battery, Pause, Re-center, override Mode/DPI, or toggle **Start at Login**.
-- **Windows 11 (`wear-pointer-v0.3.0-x86_64-windows.zip`)**:
+  3. Grant **Bluetooth** and **Accessibility** when prompted (or click **Grant Accessibility Permission…** inside the Menu Bar menu). From the Menu Bar you can see watch battery, Pause, Re-center, choose **Target Display** on multi-monitor desks, override Mode/DPI, or toggle **Start at Login**.
+- **Windows 11 (`wear-pointer-v0.3.1-x86_64-windows.zip`)**:
   1. Extract the `.zip` and double-click **`WearPointer.exe`** (runs silently with **no black console window**).
-  2. Right-click the crosshair icon in the **bottom-right System Tray** to view connection status & battery, Pause, Re-center, switch Mode/DPI, open logs, or enable **Start with Windows**.
-- **Linux / Omarchy (`wear-pointer-v0.3.0-x86_64-linux.tar.gz`)**:
+  2. Right-click the crosshair icon in the **bottom-right System Tray** to view connection status & battery, Pause, Re-center, pick **Target Display**, switch Mode/DPI, open logs, or enable **Start with Windows**.
+- **Linux / Omarchy (`wear-pointer-v0.3.1-x86_64-linux.tar.gz`)**:
   1. Extract and run `./install-linux.sh` (no `sudo` required): installs `~/.local/bin/wear-pointer-app`, `~/.local/bin/wear-pointer`, desktop launcher entry, and enables the `systemd --user` service (`wear-pointer.service`) with `StatusNotifierItem` system tray support for Waybar / KDE / AppIndicator.
   2. To remove later: `./install-linux.sh --uninstall`.
+
+### Multi-monitor desks
+
+Multi-monitor setups (side-by-side, stacked, L-shaped, mixed HiDPI, and negative-coordinate left/top screens) work out of the box across macOS (`CGGetActiveDisplayList` / `CGGetOnlineDisplayList`), Windows (`EnumDisplayMonitors` + `MOUSEEVENTF_VIRTUALDESK` with Per-Monitor DPI v2), and Linux/Hyprland (`hyprctl monitors` + `zwlr_virtual_pointer_v1`), with automatic hotplug detection:
+
+- **Relative modes (`AIR`, `TOUCH`, and `BT HID`)**: Glide freely across every monitor with zero seam friction, per-monitor DPI gain scaling, non-rectangular dead-corner clamping, and seamless handoff from any physical mouse/trackpad on secondary monitors.
+- **Laser mode (`LASER`)** — configurable live from **Target Display** in the Menu Bar / System Tray or `--display` on the CLI:
+  - **`Auto (Cross All Displays)`** *(default)*: Anchors `Center` and 1× angular sensitivity to whichever monitor currently holds the cursor, while turning your wrist past the screen edge continues the beam seamlessly onto adjacent monitors.
+  - **`Display 1..N` (`--display 2` / `--display DP-1`)**: Locks `LASER` strictly inside a single chosen monitor — ideal for slide presentations on a projector without spilling onto speaker notes.
+  - **`Span All Displays` (`--display all`)**: Maps the entire multi-monitor wall as one continuous wide laser canvas.
 
 ## Developer & terminal CLI (`wear-pointer`)
 
@@ -55,6 +65,9 @@ Every release archive also includes the full terminal CLI binary (`wear-pointer`
 ```bash
 # Verify checksums after downloading from https://gitlab.com/aa22396584/wear-pointer/-/releases
 sha256sum -c SHA256SUMS.txt
+
+# Inspect detected multi-monitor topology and global coordinates
+./wear-pointer --list-displays
 
 # Stage 0 link check (prints 1 Hz packet rate, sequence loss, and relative latency without moving cursor)
 ./wear-pointer --debug --backend log
@@ -67,6 +80,7 @@ sha256sum -c SHA256SUMS.txt
 wear-pointer [--tray | --no-tray] [--version] [--debug] [--role central|peripheral]
              [--backend hyprland|macos|windows|log|uinput]
              [--mode absolute|air|touch]
+             [--display auto|all|primary|1..N|NAME] [--list-displays]
              [--dpi 1600] [--speed 1.6] [--steady 0.8] [--quick 0.01]
              [--dead-zone 0.0] [--screen 1920x1080]
              [--adapter hci1] [--device SM-L310] [--trace FILE] [--replay FILE]
@@ -86,11 +100,11 @@ wear-pointer [--tray | --no-tray] [--version] [--debug] [--role central|peripher
 
 | Piece | Checked here | Remaining / Notes |
 | --- | --- | --- |
-| Rust `cargo test` (`LASER` / `AIR` / `TOUCH` modes, `WatchInfo` & live tray overrides, ergonomic `1600 DPI`, OS cursor handoff, packets, loss, latency, 240 Hz follow, BLE shutdown & CoreBluetooth recovery) | yes, 64 tests on macOS / 64 on Linux | — |
-| Native Menu Bar / System Tray GUI + preserved CLI (`WearPointer.app` + `.dmg`, Windows `WearPointer.exe` GUI + `wear-pointer.exe` CLI, Linux `wear-pointer-app` SNI tray + `install-linux.sh`) | yes, all 3 desktop platforms built & smoke-tested on physical machines | — |
+| Rust `cargo test` (`LASER` / `AIR` / `TOUCH` modes, multi-monitor `DesktopLayout` & negative-origin seam/corner clamping, `WatchInfo` & live tray overrides, ergonomic `1600 DPI`, OS cursor handoff, packets, loss, latency, 240 Hz follow, BLE shutdown & CoreBluetooth recovery) | yes, 71 tests on macOS / 71 on Linux | — |
+| Native Menu Bar / System Tray GUI + preserved CLI (`WearPointer.app` + `.dmg`, Windows `WearPointer.exe` GUI + `wear-pointer.exe` CLI, Linux `wear-pointer-app` SNI tray + `install-linux.sh`) | yes, all 3 desktop platforms built & smoke-tested on physical machines (including 3-monitor heterogeneous macOS setup) | — |
 | Wear OS `assembleRelease` / `bundleRelease` (R8 code + resource shrinking, `1.5 MB` APK), Standard Bluetooth HID (`BluetoothHidDevice`), and JVM unit tests | yes, JDK 21, `compileSdk = 35`, `targetSdk = 35`, 43 JVM unit tests (`HidMotionEngineTest` + protocol/motion), `v0.3.0` (`versionCode = 7`) installed on physical `SM-L310` | — |
 | Physical Watch7 (`SM-L310`) BLE peripheral, 100 Hz sensor rate, live DPI sync (`400–3200 DPI`), mid-drag drop & reconnect | yes: `~102 pkt/s`, `0.0%` loss across Omarchy BlueZ, Windows 11 WinRT, and macOS CoreBluetooth ([metrics](docs/acceptance-metrics.md), [evidence](docs/evidence/README.md)) | 10-minute stationary yaw drift characterization optional |
-| Hyprland cursor movement | yes, physical `SM-L310` → Omarchy Hyprland 0.56.2 (`zwlr_virtual_pointer_v1`, `hyprctl cursorpos`) + QEMU harness | multi-monitor output selection uses first `wl_output` |
+| Hyprland cursor movement | yes, physical `SM-L310` → Omarchy Hyprland 0.56.2 (`zwlr_virtual_pointer_v1`, `hyprctl monitors` / `cursorpos`, multi-monitor + HiDPI + rotation) + QEMU harness | — |
 | macOS `CGEventPost`, Windows `SendInput` | yes, live physical `SM-L310` verified end-to-end on macOS (`WearPointer.app` CoreBluetooth + `CGEventPost`) and Windows 11 (`WinRT` + `SendInput`) ([evidence](docs/evidence/README.md)) | macOS prompts once for Bluetooth & Accessibility on `WearPointer.app` |
 | Desktop-as-peripheral fallback | watch side (`ALT`) is written; desktop `--role peripheral` exits with an error | `BT HID` provides built-in OS-native fallback without needing `ALT` |
 

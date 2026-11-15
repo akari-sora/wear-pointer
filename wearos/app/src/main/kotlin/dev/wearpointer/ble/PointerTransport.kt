@@ -31,6 +31,9 @@ interface PointerTransport {
     /** Counts since the previous call: API accept, callback success, callback/API failure, coalesced aims. */
     fun takeCounters(): SendCounters = SendCounters()
 
+    /** Re-attempt connection to paired hosts when user initiates pairing/reconnect. */
+    fun requestReconnect() = Unit
+
     /** Debug builds only: take the same path as a failed notify. */
     fun dropLinkForTest(reason: String) = Unit
 }

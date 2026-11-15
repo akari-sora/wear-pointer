@@ -23,7 +23,7 @@ pub use packet::{
 };
 pub use project::{dpi_to_speed, project_aim, reach_degrees, speed_to_dpi, Screen};
 pub use relative::{AirMouse, ControlMode, TouchPad};
-pub use session::{Button, CursorAction, DebugSnapshot, PointerSession, SessionConfig};
+pub use session::{Button, CursorAction, DebugSnapshot, PointerSession, SessionConfig, WatchInfo};
 pub use stats::{LinkStats, Timing};
 
 /// Cursor follow time constant, in seconds. About a 5 ms catch-up.

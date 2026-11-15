@@ -1221,19 +1221,23 @@ dependencies = [
 
 [[package]]
 name = "wear-pointer"
-version = "0.2.4"
+version = "0.3.0"
 dependencies = [
  "anyhow",
+ "dbus",
  "embed-resource",
+ "libc",
+ "objc2",
  "tokio",
  "wear-pointer-bluetooth",
  "wear-pointer-core",
  "wear-pointer-platform",
+ "windows 0.58.0",
 ]
 
 [[package]]
 name = "wear-pointer-bluetooth"
-version = "0.2.4"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1246,14 +1250,14 @@ dependencies = [
 
 [[package]]
 name = "wear-pointer-core"
-version = "0.2.4"
+version = "0.3.0"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "wear-pointer-platform"
-version = "0.2.4"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "core-foundation",

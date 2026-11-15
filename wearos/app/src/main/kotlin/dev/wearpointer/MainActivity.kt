@@ -61,6 +61,7 @@ class MainActivity : ComponentActivity() {
                 permissionsBlocked = permissionsBlocked,
                 onRequestPermissions = { requestBlePermissions() },
                 onRole = { PointerRuntime.setRole(it) },
+                onPairPc = { PointerRuntime.requestPairable(this) },
                 onDpi = { PointerRuntime.setDpi(it) },
                 onStepDpi = { PointerRuntime.stepDpi(it) },
                 onStop = { PointerRuntime.stop() },

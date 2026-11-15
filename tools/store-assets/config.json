@@ -32,9 +32,9 @@
         },
         "link": {"en-US": "BLE · ~10 ms", "zh-TW": "藍牙 · 約 10 ms"},
         "rows": [
-          {"icon": "command", "color": "sky", "title": "macOS", "sub": "CGEventPost"},
-          {"icon": "window", "color": "sky", "title": "Windows", "sub": "SendInput"},
-          {"icon": "terminal", "color": "sky", "title": "Linux", "sub": "Hyprland · uinput"}
+          {"icon": "command", "color": "sky", "title": "macOS", "sub": "Menu Bar · BT HID"},
+          {"icon": "window", "color": "sky", "title": "Windows", "sub": "System Tray · BT HID"},
+          {"icon": "terminal", "color": "sky", "title": "Linux", "sub": "Hyprland · Tray · BT HID"}
         ]
       },
       {
@@ -166,7 +166,7 @@
     "locales": ["en-US"],
     "watch": "main",
     "text": {
-      "en-US": {"eyebrow": "OPEN SOURCE · WEAR OS", "headline": "Your watch is now a *mouse*.", "sub": "A Wear OS air mouse with a Rust desktop receiver. 100 Hz wrist aim over Bluetooth LE, about 10 ms to the cursor.", "chips": ["macOS", "Windows", "Linux / Hyprland"], "footnote": "MIT · gitlab.com/aa22396584/wear-pointer"}
+      "en-US": {"eyebrow": "OPEN SOURCE · WEAR OS", "headline": "Your watch is now a *mouse*.", "sub": "Pair directly via built-in Bluetooth HID (zero PC install), or run the 240 Hz Menu Bar / System Tray app & CLI.", "chips": ["macOS", "Windows", "Linux", "BT HID"], "footnote": "MIT · gitlab.com/aa22396584/wear-pointer"}
     }
   }
 }

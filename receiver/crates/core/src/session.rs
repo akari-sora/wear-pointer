@@ -25,6 +25,14 @@ pub enum CursorAction {
     Scroll { delta_px: i32 },
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct WatchInfo {
+    pub name: String,
+    pub battery_pct: Option<u8>,
+    pub charging: bool,
+    pub sensor_hz: f64,
+}
+
 #[derive(Clone, Debug)]
 pub struct DebugSnapshot {
     pub rx_hz: f64,
@@ -146,9 +154,11 @@ pub struct PointerSession {
     last_tick_s: Option<f64>,
     last_debug_s: Option<f64>,
     paused: bool,
+    local_paused: bool,
     dragging: bool,
     remote_dpi: Option<u16>,
     remote_mode: Option<ControlMode>,
+    remote_info: Option<WatchInfo>,
     air: AirMouse,
     touch: TouchPad,
     /// Virtual cursor for the relative modes (absolute mode derives the
@@ -179,9 +189,11 @@ impl PointerSession {
             last_tick_s: None,
             last_debug_s: None,
             paused: false,
+            local_paused: false,
             dragging: false,
             remote_dpi: None,
             remote_mode: None,
+            remote_info: None,
             air: AirMouse::default(),
             touch: TouchPad::default(),
             pos: None,
@@ -202,6 +214,63 @@ impl PointerSession {
 
     pub fn remote_mode(&self) -> Option<ControlMode> {
         self.remote_mode
+    }
+
+    pub fn mode_override(&self) -> Option<ControlMode> {
+        self.config.mode_override
+    }
+
+    pub fn set_mode_override(&mut self, mode: Option<ControlMode>) {
+        let before = self.effective_mode();
+        self.config.mode_override = mode;
+        if self.effective_mode() != before {
+            self.switch_mode();
+        }
+    }
+
+    pub fn dpi_override(&self) -> Option<u16> {
+        self.config.cli_speed_override.map(speed_to_dpi)
+    }
+
+    pub fn set_dpi_override(&mut self, dpi: Option<u16>) {
+        match dpi {
+            Some(d) => {
+                let speed = dpi_to_speed(d.clamp(100, 6400));
+                self.config.speed = speed;
+                self.config.cli_speed_override = Some(speed);
+            }
+            None => {
+                self.config.speed = dpi_to_speed(DEFAULT_DPI);
+                self.config.cli_speed_override = None;
+            }
+        }
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused || self.local_paused
+    }
+
+    pub fn is_local_paused(&self) -> bool {
+        self.local_paused
+    }
+
+    pub fn set_local_paused(&mut self, paused: bool) -> Vec<CursorAction> {
+        self.local_paused = paused;
+        self.air.reset();
+        self.touch.reset();
+        if paused {
+            self.force_release_drag()
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn center_now(&mut self) -> Vec<CursorAction> {
+        self.center()
+    }
+
+    pub fn remote_info(&self) -> Option<&WatchInfo> {
+        self.remote_info.as_ref()
     }
 
     /// True when the receiver should report the OS cursor position through
@@ -280,6 +349,7 @@ impl PointerSession {
         self.paused = false;
         self.remote_dpi = None;
         self.remote_mode = None;
+        self.remote_info = None;
         self.air.reset();
         self.touch.reset();
         self.pos = self.follower.shown;
@@ -383,7 +453,22 @@ impl PointerSession {
                 self.remote_dpi = Some(dpi.clamp(MIN_DPI, MAX_DPI));
                 Vec::new()
             }
-            Packet::Info { .. } | Packet::Unknown { .. } => Vec::new(),
+            Packet::Info {
+                battery_pct,
+                charging,
+                sensor_hz_x10,
+                name,
+                ..
+            } => {
+                self.remote_info = Some(WatchInfo {
+                    name,
+                    battery_pct: (battery_pct <= 100).then_some(battery_pct),
+                    charging,
+                    sensor_hz: f64::from(sensor_hz_x10) / 10.0,
+                });
+                Vec::new()
+            }
+            Packet::Unknown { .. } => Vec::new(),
         }
     }
 
@@ -407,7 +492,7 @@ impl PointerSession {
             });
         }
 
-        if !self.paused && !silent {
+        if !self.is_paused() && !silent {
             if let Some(target) = self.target {
                 if let Some(point) = self.follower.tick(target, dt) {
                     self.remember(local_s, point);
@@ -1272,5 +1357,37 @@ mod tests {
             (shown.0 - 1000.0).abs() < 2.0,
             "re-clutch must not jump, got {shown:?}"
         );
+    }
+
+    #[test]
+    fn records_watch_info_and_applies_live_desktop_overrides() {
+        let mut s = session();
+        let info_pkt = encode(&Packet::Info {
+            header: header(crate::KIND_INFO, 1, 10_000),
+            battery_pct: 84,
+            charging: true,
+            sensor_hz_x10: 998,
+            name: "SM-L310".to_string(),
+        });
+        s.push_packet(&info_pkt, 0.01);
+        let info = s.remote_info().expect("watch info");
+        assert_eq!(info.name, "SM-L310");
+        assert_eq!(info.battery_pct, Some(84));
+        assert!(info.charging);
+        assert!((info.sensor_hz - 99.8).abs() < 1e-6);
+
+        s.set_mode_override(Some(ControlMode::Air));
+        assert_eq!(s.effective_mode(), ControlMode::Air);
+        s.set_dpi_override(Some(2400));
+        assert_eq!(s.effective_dpi(), 2400);
+        s.set_dpi_override(None);
+        assert_eq!(s.effective_dpi(), DEFAULT_DPI);
+
+        s.set_local_paused(true);
+        assert!(s.is_paused());
+        s.push_packet(&aim(2, 20_000, -1000, 0), 0.02);
+        assert!(s.tick(0.03).0.is_empty());
+        s.set_local_paused(false);
+        assert!(!s.is_paused());
     }
 }

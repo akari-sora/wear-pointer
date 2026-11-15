@@ -88,6 +88,7 @@ fun RemoteScreen(
     permissionsBlocked: Boolean,
     onRequestPermissions: () -> Unit,
     onRole: (PointerRuntime.Role) -> Unit,
+    onPairPc: () -> Unit = {},
     onDpi: (Int) -> Unit,
     onStepDpi: (Int) -> Unit,
     onStop: () -> Unit,
@@ -160,9 +161,9 @@ fun RemoteScreen(
                     CenteredNoticeScreen(
                         badgeColor = AccentRose,
                         title = "Peripheral Blocked",
-                        subtitle = "This watch cannot advertise BLE. Switch to desktop advertiser.",
-                        buttonLabel = "Switch Role",
-                        onAction = { onRole(PointerRuntime.Role.DESKTOP_ADVERTISES) },
+                        subtitle = "This watch cannot advertise BLE. Switch to built-in BT HID mouse.",
+                        buttonLabel = "Use BT HID",
+                        onAction = { onRole(PointerRuntime.Role.STANDARD_HID) },
                     )
                 }
                 else -> {
@@ -265,6 +266,7 @@ fun RemoteScreen(
                     showPrivacy = showPrivacy,
                     onShowPrivacy = { showPrivacy = it },
                     onRole = onRole,
+                    onPairPc = onPairPc,
                     onDpi = onDpi,
                     onStepDpi = onStepDpi,
                     onDismiss = {
@@ -339,6 +341,14 @@ private fun StatusCapsule(
             PointerRuntime.Mode.TOUCH -> "TOUCH · ${ui.dpi} DPI"
         }
         ui.status.startsWith("Link dropped") -> "RECONNECTING"
+        ui.status.contains("Discoverable", ignoreCase = true) -> "PAIRABLE · 2M"
+        ui.role == PointerRuntime.Role.STANDARD_HID && ui.status != "Bluetooth is off" -> {
+            if (ui.status.contains("Connecting", ignoreCase = true)) {
+                "HID · CONNECTING"
+            } else {
+                "BT HID · ${ui.dpi} DPI"
+            }
+        }
         ui.status.contains("Advertising", ignoreCase = true) -> "ADV · ${ui.dpi} DPI"
         ui.status.contains("Scanning", ignoreCase = true) -> "SCANNING"
         else -> ui.status.uppercase()
@@ -422,10 +432,16 @@ private fun ClickPad(ui: PointerRuntime.UiState, modifier: Modifier) {
         touchMode -> "SLIDE"
         else -> "TAP"
     }
+    val isIdleHint = !isStopped && !dragging && !ui.paused && !ui.connected
     val subLabel = when {
         isStopped -> "TAP START BELOW"
         dragging -> if (touchMode) "SLIDE TO DRAG" else "RELEASE TO DROP"
         ui.paused -> if (ui.mode == PointerRuntime.Mode.ABSOLUTE) "TRACKS WHILE AWAKE" else "CLUTCH · CURSOR HELD"
+        !ui.connected -> when (ui.role) {
+            PointerRuntime.Role.WATCH_ADVERTISES -> "Open PC app · or tap top for BT HID"
+            PointerRuntime.Role.STANDARD_HID -> "Pair in PC Bluetooth · tap top to Pair"
+            PointerRuntime.Role.DESKTOP_ADVERTISES -> "Scanning · or tap top for BT HID"
+        }
         touchMode -> "TAP CLICK · HOLD DRAG"
         ui.mode == PointerRuntime.Mode.AIR -> "AIR MOUSE · HOLD DRAG"
         else -> "HOLD DRAG · BEZEL SCROLL"
@@ -560,7 +576,7 @@ private fun ClickPad(ui: PointerRuntime.UiState, modifier: Modifier) {
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 6.dp),
+                .padding(start = 8.dp, end = 8.dp, bottom = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
@@ -573,9 +589,11 @@ private fun ClickPad(ui: PointerRuntime.UiState, modifier: Modifier) {
             Text(
                 text = subLabel,
                 color = TextSecondary,
-                fontSize = 8.sp,
-                fontFamily = FontFamily.Monospace,
+                fontSize = if (isIdleHint) 7.5.sp else 8.sp,
+                fontFamily = if (isIdleHint) FontFamily.Default else FontFamily.Monospace,
+                textAlign = TextAlign.Center,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -803,6 +821,7 @@ private fun TelemetryOverlay(
     showPrivacy: Boolean,
     onShowPrivacy: (Boolean) -> Unit,
     onRole: (PointerRuntime.Role) -> Unit,
+    onPairPc: () -> Unit,
     onDpi: (Int) -> Unit,
     onStepDpi: (Int) -> Unit,
     onDismiss: () -> Unit,
@@ -820,6 +839,7 @@ private fun TelemetryOverlay(
     val reachDeg = "%.1f°".format(25f * Packets.BASE_DPI / ui.dpi.coerceAtLeast(Packets.MIN_DPI))
     val canDecrease = ui.dpi > Packets.MIN_DPI
     val canIncrease = ui.dpi < Packets.MAX_DPI
+    val showPairPc = ui.role == PointerRuntime.Role.STANDARD_HID && !ui.connected
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -831,7 +851,7 @@ private fun TelemetryOverlay(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 14.dp)
+                .padding(start = 24.dp, end = 24.dp, top = 13.dp, bottom = 17.dp)
                 .clickable(enabled = false) {},
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween,
@@ -849,7 +869,7 @@ private fun TelemetryOverlay(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(34.dp)
+                    .height(32.dp)
                     .clip(CircleShape)
                     .background(SurfaceElevated)
                     .border(1.dp, BorderStrong, CircleShape)
@@ -859,7 +879,7 @@ private fun TelemetryOverlay(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(width = 36.dp, height = 26.dp)
+                        .size(width = 35.dp, height = 24.dp)
                         .clip(CircleShape)
                         .background(SurfaceIdle)
                         .border(1.dp, if (canDecrease) BorderStrong else BorderSubtle, CircleShape)
@@ -892,7 +912,7 @@ private fun TelemetryOverlay(
                     Text(
                         text = "${ui.dpi} DPI",
                         color = AccentEmerald,
-                        fontSize = 11.sp,
+                        fontSize = 10.5.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -900,7 +920,7 @@ private fun TelemetryOverlay(
                     Text(
                         text = "±$reachDeg · BEZEL TUNES",
                         color = TextMuted,
-                        fontSize = 7.sp,
+                        fontSize = 6.8.sp,
                         fontFamily = FontFamily.Monospace,
                         maxLines = 1,
                     )
@@ -908,7 +928,7 @@ private fun TelemetryOverlay(
 
                 Box(
                     modifier = Modifier
-                        .size(width = 36.dp, height = 26.dp)
+                        .size(width = 35.dp, height = 24.dp)
                         .clip(CircleShape)
                         .background(SurfaceIdle)
                         .border(1.dp, if (canIncrease) BorderStrong else BorderSubtle, CircleShape)
@@ -945,73 +965,130 @@ private fun TelemetryOverlay(
                 MetricTile("AIM L/U", "$leftDeg $upDeg", Modifier.weight(1.4f), compact = true)
             }
 
-            val watchAdv = ui.role == PointerRuntime.Role.WATCH_ADVERTISES
-            Box(
-                modifier = Modifier
-                    .height(23.dp)
-                    .clip(CircleShape)
-                    .background(SurfaceIdle)
-                    .border(1.dp, BorderSubtle, CircleShape)
-                    .clickable {
-                        val next = if (watchAdv) {
-                            PointerRuntime.Role.DESKTOP_ADVERTISES
-                        } else {
-                            PointerRuntime.Role.WATCH_ADVERTISES
-                        }
-                        onRole(next)
-                    }
-                    .semantics { contentDescription = "Switch BLE role" }
-                    .padding(horizontal = 12.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = if (watchAdv) "Role: Watch Adv" else "Role: Desktop Adv",
-                    color = TextPrimary,
-                    fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace,
-                )
-            }
+            LinkSelector(
+                role = ui.role,
+                onRole = { role ->
+                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    onRole(role)
+                },
+            )
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (showPairPc) 5.dp else 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (showPairPc) {
+                    Box(
+                        modifier = Modifier
+                            .height(22.dp)
+                            .clip(CircleShape)
+                            .background(SurfaceDrag)
+                            .border(1.dp, AccentEmerald, CircleShape)
+                            .clickable {
+                                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                onPairPc()
+                            }
+                            .semantics { contentDescription = "Pair PC via Bluetooth" }
+                            .padding(horizontal = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "Pair PC",
+                            color = AccentEmerald,
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                        )
+                    }
+                }
                 Box(
                     modifier = Modifier
-                        .height(23.dp)
+                        .height(22.dp)
                         .clip(CircleShape)
                         .background(SurfaceIdle)
                         .border(1.dp, BorderSubtle, CircleShape)
                         .clickable { onShowPrivacy(true) }
                         .semantics { contentDescription = "Privacy Policy" }
-                        .padding(horizontal = 12.dp),
+                        .padding(horizontal = if (showPairPc) 8.dp else 12.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = "Privacy",
                         color = TextSecondary,
-                        fontSize = 9.sp,
+                        fontSize = if (showPairPc) 8.5.sp else 9.sp,
                         fontWeight = FontWeight.Medium,
+                        maxLines = 1,
                     )
                 }
                 Box(
                     modifier = Modifier
-                        .width(68.dp)
-                        .height(23.dp)
+                        .then(if (showPairPc) Modifier.padding(horizontal = 0.dp) else Modifier.width(64.dp))
+                        .height(22.dp)
                         .clip(CircleShape)
                         .background(SurfaceElevated)
                         .border(1.dp, BorderStrong, CircleShape)
                         .clickable(onClick = onDismiss)
-                        .semantics { contentDescription = "Done" },
+                        .semantics { contentDescription = "Done" }
+                        .padding(horizontal = if (showPairPc) 9.dp else 0.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = "Done",
                         color = TextPrimary,
-                        fontSize = 9.5.sp,
+                        fontSize = if (showPairPc) 8.5.sp else 9.5.sp,
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
                     )
                 }
+            }
+        }
+    }
+}
+
+/** 3-segment Link Bar: BLE Desktop App · Standard Bluetooth HID Mouse · Alternate Central. */
+@Composable
+private fun LinkSelector(
+    role: PointerRuntime.Role,
+    onRole: (PointerRuntime.Role) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp)
+            .height(25.dp)
+            .clip(CircleShape)
+            .background(SurfaceIdle)
+            .border(1.dp, BorderSubtle, CircleShape)
+            .padding(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        PointerRuntime.Role.entries.forEach { option ->
+            val selected = option == role
+            val (short, weight, desc) = when (option) {
+                PointerRuntime.Role.WATCH_ADVERTISES -> Triple("BLE APP", 1.15f, "BLE Desktop App")
+                PointerRuntime.Role.STANDARD_HID -> Triple("BT HID", 1.05f, "Standard Bluetooth HID Mouse")
+                PointerRuntime.Role.DESKTOP_ADVERTISES -> Triple("ALT", 0.8f, "Alternate Desktop Advertiser")
+            }
+            Box(
+                modifier = Modifier
+                    .weight(weight)
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .background(if (selected) SurfaceDrag else SurfaceIdle)
+                    .border(1.dp, if (selected) AccentEmerald else SurfaceIdle, CircleShape)
+                    .clickable(enabled = !selected) { onRole(option) }
+                    .semantics { contentDescription = "Link transport: $desc" },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = short,
+                    color = if (selected) AccentEmerald else TextSecondary,
+                    fontSize = 7.8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    maxLines = 1,
+                    softWrap = false,
+                )
             }
         }
     }

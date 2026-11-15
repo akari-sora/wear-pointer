@@ -1,6 +1,8 @@
 package dev.wearpointer
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.bluetooth.BluetoothAdapter
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -17,7 +19,9 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.PowerManager
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
+import dev.wearpointer.ble.HidMouseTransport
 import dev.wearpointer.ble.LinkListener
 import dev.wearpointer.ble.PointerTransport
 import dev.wearpointer.ble.SendCounters
@@ -40,7 +44,7 @@ import kotlinx.coroutines.flow.update
  * Stage 0 measures.
  */
 object PointerRuntime : SensorEventListener, LinkListener {
-    enum class Role { WATCH_ADVERTISES, DESKTOP_ADVERTISES }
+    enum class Role { WATCH_ADVERTISES, STANDARD_HID, DESKTOP_ADVERTISES }
 
     /**
      * Pointing model. [ABSOLUTE] is WatchPointer's laser (cursor = where the
@@ -155,7 +159,44 @@ object PointerRuntime : SensorEventListener, LinkListener {
         handler?.post {
             transport?.stop()
             transport = null
-            openTransport(role)
+            if (started) {
+                openTransport(role)
+            } else {
+                _state.update { it.copy(status = "Stopped") }
+            }
+        }
+    }
+
+    /**
+     * Makes the watch Bluetooth-discoverable for 120s and nudges [HidMouseTransport]
+     * to reconnect to any already-bonded desktop host.
+     */
+    @SuppressLint("MissingPermission")
+    fun requestPairable(context: Context) {
+        handler?.post {
+            transport?.requestReconnect()
+        }
+        val discoverable = Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE).apply {
+            putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, DISCOVERABLE_DURATION_SEC)
+            if (context !is Activity) {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        }
+        try {
+            context.startActivity(discoverable)
+            onStatus("Discoverable for 2 min")
+        } catch (err: Exception) {
+            Log.w(TAG, "ACTION_REQUEST_DISCOVERABLE unavailable; opening BT settings", err)
+            runCatching {
+                val btSettings = Intent(Settings.ACTION_BLUETOOTH_SETTINGS).apply {
+                    if (context !is Activity) {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                }
+                context.startActivity(btSettings)
+            }.onFailure {
+                onStatus("Pair watch in PC Bluetooth")
+            }
         }
     }
 
@@ -357,8 +398,16 @@ object PointerRuntime : SensorEventListener, LinkListener {
             return
         }
         _state.update { it.copy(bluetoothGranted = true, status = "Starting radio") }
+        val cur = _state.value
         val next: PointerTransport = when (role) {
             Role.WATCH_ADVERTISES -> WatchPeripheral(context, handler ?: return, this)
+            Role.STANDARD_HID -> HidMouseTransport(
+                context = context,
+                handler = handler ?: return,
+                listener = this,
+                initialMode = cur.mode.wire,
+                initialDpi = cur.dpi,
+            )
             Role.DESKTOP_ADVERTISES -> WatchCentral(context, handler ?: return, this)
         }
         transport = next
@@ -524,6 +573,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
             sendInfo()
             sendSensitivity(_state.value.dpi)
             sendMode(_state.value.mode)
+            if (paused) send(Packets.pause(0, nowUs(), true), reliable = true)
         }
         _state.update { it.copy(connected = connected) }
     }
@@ -547,7 +597,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
         _state.update {
             it.copy(
                 peripheralUnsupported = true,
-                status = "Watch cannot advertise. Switch to desktop advertiser.",
+                status = "Watch cannot advertise BLE. Switch to BT HID.",
             )
         }
     }
@@ -613,6 +663,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
     }
 
     private const val ACTION_DEBUG_DROP_LINK = "dev.wearpointer.DEBUG_DROP_LINK"
+    private const val DISCOVERABLE_DURATION_SEC = 120
     private const val PREFS = "wear-pointer"
     private const val KEY_ROLE = "role"
     private const val KEY_DPI = "dpi"

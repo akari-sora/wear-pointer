@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Packages the macOS receiver binary into a proper WearPointer.app bundle so
-# LaunchServices/TCC binds NSBluetoothAlwaysUsageDescription and Accessibility
-# permissions to dev.wearpointer.receiver instead of aborting bare terminal runs.
+# Packages the macOS receiver binary into a proper WearPointer.app bundle.
+# - Double-clicking WearPointer.app in Finder launches the Menu Bar app (top-right icon).
+# - Running ./wear-pointer in a terminal preserves 100% of CLI flags & live terminal logs
+#   while sharing the exact same TCC Bluetooth & Accessibility grant (dev.wearpointer.receiver).
 set -euo pipefail
 
 if [[ $# -lt 2 ]]; then
@@ -11,7 +12,7 @@ fi
 
 BIN_SRC="$1"
 OUT_DIR="$2"
-VERSION="${3:-0.2.4}"
+VERSION="${3:-0.3.0}"
 SIGN_ID="${4:--}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -38,13 +39,17 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
     <string>dev.wearpointer.receiver</string>
     <key>CFBundleName</key>
     <string>WearPointer</string>
+    <key>CFBundleDisplayName</key>
+    <string>Wear Pointer</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
     <string>${VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>6</string>
+    <string>7</string>
     <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>WearPointer connects to your Wear OS spatial pointer watch over Bluetooth LE.</string>
@@ -56,22 +61,31 @@ codesign --force --deep --sign "$SIGN_ID" "$APP_DIR"
 
 cat > "$OUT_DIR/wear-pointer" <<'EOF'
 #!/usr/bin/env bash
-# Launches WearPointer.app via LaunchServices so macOS TCC resolves Bluetooth
+# Developer / terminal CLI wrapper for WearPointer.app.
+# Preserves full CLI output in the terminal while resolving macOS TCC Bluetooth
 # and Accessibility permissions against dev.wearpointer.receiver.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_BIN="$SCRIPT_DIR/WearPointer.app/Contents/MacOS/wear-pointer"
+WANT_TRAY=0
 for arg in "$@"; do
     case "$arg" in
         -h|--help|--version|-V|--replay)
             exec "$APP_BIN" "$@"
             ;;
+        --tray)
+            WANT_TRAY=1
+            ;;
     esac
 done
+EXTRA_ARGS=()
+if [[ "$WANT_TRAY" -eq 0 ]]; then
+    EXTRA_ARGS+=(--no-tray)
+fi
 LOG_FILE="${WEAR_POINTER_LOG:-/tmp/wear-pointer-macos.log}"
 echo "wear-pointer: launching WearPointer.app (logs -> $LOG_FILE; Ctrl-C to stop)" >&2
 : > "$LOG_FILE"
-open -W -n -g --stdout "$LOG_FILE" --stderr "$LOG_FILE" "$SCRIPT_DIR/WearPointer.app" --args "$@" &
+open -W -n -g --stdout "$LOG_FILE" --stderr "$LOG_FILE" "$SCRIPT_DIR/WearPointer.app" --args "${EXTRA_ARGS[@]}" "$@" &
 OPEN_PID=$!
 tail -n +1 -f "$LOG_FILE" >&2 &
 TAIL_PID=$!

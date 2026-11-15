@@ -54,6 +54,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
         val bluetoothGranted: Boolean = false,
         val aimLeftCdeg: Int = 0,
         val aimUpCdeg: Int = 0,
+        val dpi: Int = Packets.DEFAULT_DPI,
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -95,7 +96,8 @@ object PointerRuntime : SensorEventListener, LinkListener {
         sensorManager = app.getSystemService(SensorManager::class.java)
         holdWakeLock()
         val role = loadRole(app)
-        _state.update { it.copy(role = role, bluetoothGranted = hasPermissions(app)) }
+        val dpi = loadDpi(app)
+        _state.update { it.copy(role = role, dpi = dpi, bluetoothGranted = hasPermissions(app)) }
         handler?.post {
             startSensors()
             openTransport(role)
@@ -133,6 +135,27 @@ object PointerRuntime : SensorEventListener, LinkListener {
             transport = null
             openTransport(role)
         }
+    }
+
+    fun setDpi(requestedDpi: Int) {
+        val clamped = ((requestedDpi + Packets.DPI_STEP / 2) / Packets.DPI_STEP * Packets.DPI_STEP)
+            .coerceIn(Packets.MIN_DPI, Packets.MAX_DPI)
+        appContext?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            ?.edit()
+            ?.putInt(KEY_DPI, clamped)
+            ?.apply()
+        _state.update { it.copy(dpi = clamped) }
+        Log.i(TAG, "dpi=$clamped")
+        handler?.post {
+            if (transport?.ready == true) {
+                sendSensitivity(clamped)
+            }
+        }
+    }
+
+    fun stepDpi(steps: Int) {
+        if (steps == 0) return
+        setDpi(_state.value.dpi + steps * Packets.DPI_STEP)
     }
 
     /**
@@ -369,7 +392,10 @@ object PointerRuntime : SensorEventListener, LinkListener {
                 reliable = true,
             )
             infoTicks++
-            if (infoTicks == 1 || infoTicks % 60 == 0) sendInfo()
+            if (infoTicks == 1 || infoTicks % 60 == 0) {
+                sendInfo()
+                sendSensitivity(_state.value.dpi)
+            }
         }
         if (!paused) holdWakeLock()
         _state.update {
@@ -406,6 +432,13 @@ object PointerRuntime : SensorEventListener, LinkListener {
         )
     }
 
+    private fun sendSensitivity(dpi: Int) {
+        send(
+            Packets.sensitivity(0, nowUs(), dpi),
+            reliable = true,
+        )
+    }
+
     private fun send(packet: ByteArray, reliable: Boolean) {
         val transport = transport
         if (transport == null || !transport.ready) {
@@ -430,6 +463,7 @@ object PointerRuntime : SensorEventListener, LinkListener {
         if (connected) {
             infoTicks = 0
             sendInfo()
+            sendSensitivity(_state.value.dpi)
         }
         _state.update { it.copy(connected = connected) }
     }
@@ -504,9 +538,16 @@ object PointerRuntime : SensorEventListener, LinkListener {
         return runCatching { Role.valueOf(name ?: "") }.getOrDefault(Role.WATCH_ADVERTISES)
     }
 
+    private fun loadDpi(context: Context): Int {
+        val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt(KEY_DPI, Packets.DEFAULT_DPI)
+        return saved.coerceIn(Packets.MIN_DPI, Packets.MAX_DPI)
+    }
+
     private const val ACTION_DEBUG_DROP_LINK = "dev.wearpointer.DEBUG_DROP_LINK"
     private const val PREFS = "wear-pointer"
     private const val KEY_ROLE = "role"
+    private const val KEY_DPI = "dpi"
     private const val SAMPLE_US = 10_000
     private const val UI_AIM_INTERVAL_NS = 33_000_000L
     private const val WAKE_MS = 10 * 60 * 1000L

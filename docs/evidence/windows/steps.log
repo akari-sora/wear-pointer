@@ -1,0 +1,27 @@
+[2026-11-15 10:13:19.446 +0800] === WINDOWS 11 (win-desktop Session 1) LIVE WATCH7 v0.2.2 VERIFICATION ===
+[2026-11-15 10:13:24.697 +0800] Started interactive Session 1 task WP-Ev-Win (NoActivateForm shield + wear-pointer.exe v0.2.2); waiting for BLE link up epoch=1...
+[2026-11-15 10:13:30.876 +0800] BLE connected on Windows 11! link up epoch=1 confirmed.
+[2026-11-15 10:13:32.981 +0800] Op 1 [100 Hz Live Aim + 1600 DPI default]: anchored inside WP-Shield-Windows
+[2026-11-15 10:13:37.276 +0800] Op 2 [Center tap (240,341)]: recorded BEFORE_CENTER -> AFTER_CENTER in Windows steps.log
+[2026-11-15 10:13:38.546 +0800] Op 3 [Left Click tap (240,186) x2]: completed
+[2026-11-15 10:13:40.024 +0800] Op 4 [Hold-to-Drag 850ms]: completed
+[2026-11-15 10:13:40.701 +0800] Op 5 [Right Click tap (110,341)]: completed
+[2026-11-15 10:13:42.589 +0800] Op 6 [Rotary Bezel Scroll +2/+2/-2/-2]: completed
+[2026-11-15 10:13:44.444 +0800] Op 7a [Tap DPI '+' x2: 1600 -> 1800 -> 2000 DPI]
+[2026-11-15 10:13:45.005 +0800] Op 7b [Rotary Bezel clockwise tune DPI in overlay: -> 2400 DPI]
+[2026-11-15 10:13:45.528 +0800] Op 7c [Tap DPI '-' (98,111): -> 2200 DPI]
+[2026-11-15 10:13:46.147 +0800] Op 7d [Tap DPI Reset (240,111) -> 1600 DPI]
+[2026-11-15 10:13:48.153 +0800] Op 8 [Privacy Policy view + Back + Done]: completed
+[2026-11-15 10:13:49.502 +0800] Op 9a [Pause (370,341)]: wakelock=NONE_HELD_WHILE_PAUSED
+[2026-11-15 10:13:50.708 +0800] Op 9b [Resume (370,341)]: wakelock=  PARTIAL_WAKE_LOCK                 'wear-pointer:sensors' ACQ=-108ms (uid=10004 pid=12039 pkg=dev.wearpointer.app displayId=0 lock=49d9890)
+[2026-11-15 10:13:52.712 +0800] Op 10a [Stop (240,426)]: stopped Watch7 BLE peripheral
+[2026-11-15 10:13:52.951 +0800] Op 10b [Start (240,426)]: waiting for auto-reconnect link up epoch>=2 on Windows 11...
+[2026-11-15 10:13:57.863 +0800] Auto-reconnected on Windows 11! link up epoch>=2 confirmed.
+[2026-11-15 10:14:00.189 +0800] Op 10c [Post-reconnect Center + Left Click]: completed
+[2026-11-15 10:14:04.046 +0800] === WINDOWS 11 LIVE VERIFICATION COMPLETE ===
+SCREEN=2560x1440
+SHIELD_RECT=1050,560,460x320
+ORIG_CUR=0,698
+BEFORE_CENTER=1375,645
+AFTER_CENTER=1280,714
+RESTORED_CURSOR=0,698

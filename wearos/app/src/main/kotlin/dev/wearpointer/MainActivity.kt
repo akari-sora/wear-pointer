@@ -40,6 +40,8 @@ class MainActivity : ComponentActivity() {
             RemoteScreen(
                 onRequestPermissions = { requestBlePermissions() },
                 onRole = { PointerRuntime.setRole(it) },
+                onDpi = { PointerRuntime.setDpi(it) },
+                onStepDpi = { PointerRuntime.stepDpi(it) },
                 onStop = { PointerRuntime.stop() },
                 onStart = { startPointer() },
             )

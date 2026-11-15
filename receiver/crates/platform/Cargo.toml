@@ -21,6 +21,7 @@ wayland-protocols-wlr = { version = "0.3.5", features = ["client"] }
 evdev = { version = "0.12.2", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.9"
 core-graphics = { version = "0.23", features = ["highsierra"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]

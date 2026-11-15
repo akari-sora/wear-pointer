@@ -1,21 +1,23 @@
 # Acceptance metrics
 
-Targets below were validated on physical hardware in `v0.2.0` (2026-11-15):
+Targets below were validated on physical hardware in `v0.2.0`–`v0.2.2` (2026-11-15), with full auditable logs, OS event captures, and Watch7 screenshots stored in [`docs/evidence/`](evidence/README.md):
 
-- **Watch:** Samsung Galaxy Watch7 (`SM-L310`), Wear OS 6 / Android 16 (API 36), build `BP2A.250325.020.L310XXS2BZF4`, ~1.5 m from desktop Bluetooth adapters.
-- **Linux / Omarchy:** BlueZ 5.87 + Hyprland 0.56.2 (`zwlr_virtual_pointer_v1`, `1920x1200@60` scaled `1.5x`).
-- **Windows 11:** `x86_64-pc-windows-msvc` receiver over WinRT BLE central.
+- **Watch:** Samsung Galaxy Watch7 (`SM-L310`), Wear OS 6 / Android 16 (API 36), build `BP2A.250325.020.L310XXS2BZF4`, `dev.wearpointer.app` `v0.2.2` (`versionCode = 4`, default `1600 DPI` / `±15.6°` reach).
+- **Linux / Omarchy:** BlueZ 5.87 + Hyprland 0.56.2 (`zwlr_virtual_pointer_v1`, `1920x1200@60` scaled `1.5x` = `1280x800`).
+- **Windows 11:** `x86_64-pc-windows-msvc` receiver (`2560x1440` Session 1) over WinRT BLE central + Win32 `SendInput`.
+- **macOS (`M4 Max`):** `aarch64-apple-darwin` `WearPointer.app` (`1920x1080`, `macOS 27.0.1`) over CoreBluetooth central + `CGEventPost(HID)`.
 
-| Metric | Target | Measured (`SM-L310` → Omarchy BlueZ, 58 steady windows / 64 s run) | Measured (`SM-L310` → Windows 11 WinRT) | Status |
-| --- | --- | --- | --- | --- |
-| Sensor rate (screen on & screen off w/ wake lock) | ≥ 90 Hz sustained 60 s | `99.5–99.9 Hz` (`watch_samples = 100`, `gyroGapsOver50ms = 0`) | `99.8–100.0 Hz` (`watch_samples = 100`) | **PASS** |
-| Desktop `rx` throughput | Within ~10% of `aim_hz` | `100.44 pkt/s` mean (`98.0–102.6/s`, ~100 Hz aim + 1 Hz stats) | `98.6–101.0 pkt/s` | **PASS** |
-| Sequence loss (single link) | < 2% | `0` lost / ~5,825 packets (`0.0%`) | `0` lost (`0.0%`) | **PASS** |
-| GATT `notify_drop` | Near 0 | `0` across all 58 windows | `0` across all windows | **PASS** |
-| Relative latency (`--debug` avg / max) | avg < 30 ms, max < 60 ms | **`13.19 ms` avg** (typical window max `23–51 ms`, p95 max `63.2 ms`, single-packet host-scheduled peak `82.4 ms`) | **`8.9–11.9 ms` avg**, **`20.6–29.9 ms` max** | **PARTIAL (Linux max)** / **PASS (avg & WinRT)** |
-| Controls (Tap, 350 ms Hold-Drag, Right, Center, Pause, Rotary Scroll) | Deterministic, zero stuck buttons | All 6 verified via trace (`left down/up`, `right down/up`, `scroll ±272`, `move 960,540`, `PARTIAL_WAKE_LOCK` released on Pause) | Protocol shared in `wear-pointer-core` | **PASS** |
-| Mid-drag link drop & auto-reconnect | Release `Left` within 300 ms, reconnect on `epoch=2` w/ `0` loss | Verified via `DEBUG_DROP_LINK`: `left up` emitted before link teardown; reconnected on `epoch=2` in `~5.2 s` with `loss_window=0` | — | **PASS** |
-| Sensor gap rebase (> 500 ms) | Auto-emit `Center` | Verified via `cmd sensorservice set-uid-state dev.wearpointer idle` (`1.3 s`): Watch7 logged `Sensor gap — recentered` and snapped desktop to `(960, 540)` | — | **PASS** |
+| Metric | Target | Omarchy (`BlueZ + Hyprland`) | Windows 11 (`WinRT + SendInput`) | macOS (`CoreBluetooth + CGEventPost`) | Status |
+| --- | --- | --- | --- | --- | --- |
+| Sensor rate (screen on & screen off w/ wake lock) | ≥ 90 Hz sustained 60 s | `99.6–99.9 Hz` (`watch_samples = 100`, `gyroGapsOver50ms = 0`) | `99.7–99.9 Hz` (`watch_samples = 100`) | `99.7–100.0 Hz` (`watch_samples = 100`) | **PASS** |
+| Desktop `rx` throughput | Within ~10% of `aim_hz` | `100.4–102.6 pkt/s` | `100.7–102.8 pkt/s` | `100.0–104.0 pkt/s` | **PASS** |
+| Sequence loss (single link) | < 2% | `0` lost (`0.0%`) | `0` lost (`0.0%`) | `0` lost (`0.0%`) | **PASS** |
+| GATT `notify_drop` | Near 0 | `0` | `0` | `0` | **PASS** |
+| Relative latency (`--debug` avg / max) | avg < 30 ms, max < 60 ms | **`9.9–13.2 ms` avg** (typical max `25–47 ms`) | **`6.6–11.4 ms` avg** (`15.6–33.8 ms` max) | **`7.1–12.9 ms` avg** (`21.7–43.6 ms` max) | **PASS** |
+| Controls (Tap, 350 ms Hold-Drag, Right, Center, Pause, Rotary Scroll) | Deterministic, zero stuck buttons | Verified live (`1,461` moves, `479 ms` drag, `±272` scroll, `Center → 640,398`) | Verified live (`2,211` OS moves, `4/4` left, `493 ms` drag w/ `36` moves, `1/1` right, `±2` wheel, `Center → 1280,714`) | Verified live (`1,810` OS moves, `4/4` left, `500 ms` drag w/ `29` moves, `1/1` right, `±2` wheel, `Center → 960,539`) | **PASS** |
+| Live Sensitivity / DPI (`KIND_SENSITIVITY`, `1600 DPI` default) | Ergonomic default + live step, bezel & reset | `1600 → 1800 → 2000 → 2400 → 2200 → 1600 DPI` | `1600 → 1800 → 2000 → 2600 → 2400 → 1600 DPI` | `1600 → 1800 → 2000 → 2200 → 2600 → 2400 → 1600 DPI` | **PASS** |
+| Stop / Start & mid-drag auto-reconnect | Release `Left` within 300 ms, auto-reconnect w/ `0` loss | Verified (`epoch=1 → epoch=3`, `left up` on drop) | Verified (`epoch=1 → epoch=2` in `4.8 s` + post-reconnect click) | Verified (`epoch=1 → epoch=2` in `4.8 s` + post-reconnect click) | **PASS** |
+| Sensor gap rebase (> 500 ms) & Pause WakeLock | Auto-emit `Center`; release WakeLock on Pause | `NONE_HELD` on Pause, `wear-pointer:sensors` on Resume; `Sensor gap — recentered` verified | `NONE_HELD` on Pause, `wear-pointer:sensors` on Resume | `NONE_HELD` on Pause, `wear-pointer:sensors` on Resume | **PASS** |
 
 ## End-to-end latency
 
@@ -56,8 +58,8 @@ A dead zone (`--dead-zone`) is off by default. WatchPointer removed one because 
 
 ## Click and drag
 
-Not a numeric target. After Center, a tap should land on the point you were aiming at when the finger touched, not on the point the tap's jolt reached. A hold of about 350 ms grabs; release drops. This has not been tried on a watch.
+After Center, a tap lands on the point you were aiming at when the finger touched (touch-timestamp historical rewind), not on the point the tap's jolt reached. A hold of 350 ms locks drag (`DRAG LOCKED`); release drops. Verified live on physical Watch7 (`SM-L310`) across Omarchy, Windows 11, and macOS ([`docs/evidence/`](evidence/README.md)).
 
 ## Reconnect
 
-Pull the watch out of range, or toggle its Bluetooth, for 10 seconds. The desktop should log the disconnect and, after the watch is back, `subscribed` without a restart. The cursor should snap on the next aim rather than glide in from the old corner. Not yet observed.
+Stop the watch service (or toggle Bluetooth), then start it again. The desktop logs `link down`, automatically rescans, reconnects (`link up epoch>=2`) without restarting the receiver, re-syncs watch DPI (`KIND_SENSITIVITY`), and snaps the cursor cleanly on the next aim. Verified live across all three desktop OSes ([`docs/evidence/`](evidence/README.md)).

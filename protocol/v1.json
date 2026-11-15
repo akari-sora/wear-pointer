@@ -3,7 +3,13 @@
   "sensor_hz": 100,
   "cursor_hz": 240,
   "hold_to_drag_ms": 350,
-  "default_reach_deg": 25.0,
+  "base_dpi": 1000,
+  "default_dpi": 1600,
+  "min_dpi": 400,
+  "max_dpi": 3200,
+  "dpi_step": 200,
+  "base_reach_deg": 25.0,
+  "default_reach_deg": 15.625,
   "default_steady_hz": 0.8,
   "default_quickness": 0.01,
   "follow_tau_s": 0.005,
@@ -21,7 +27,8 @@
     "pause": 5,
     "info": 6,
     "drag": 7,
-    "stats": 8
+    "stats": 8,
+    "sensitivity": 9
   },
   "control_commands": {
     "request_stats": 1

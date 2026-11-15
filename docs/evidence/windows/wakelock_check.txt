@@ -1,0 +1,2 @@
+PAUSED: NONE_HELD_WHILE_PAUSED
+RESUMED:   PARTIAL_WAKE_LOCK                 'wear-pointer:sensors' ACQ=-108ms (uid=10004 pid=12039 pkg=dev.wearpointer.app displayId=0 lock=49d9890)

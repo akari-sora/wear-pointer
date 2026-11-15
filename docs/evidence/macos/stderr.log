@@ -1,0 +1,50 @@
+wear-pointer: cursor loop at 240 Hz (1600 DPI, reach ±15.6°). Ctrl-C to quit. No --device filter set (accepts first matching watch).
+wear-pointer: bluetooth adapter ready (CoreBluetooth), role=central
+wear-pointer: scanning for the watch
+wear-pointer: connecting to watch (9bbda74e-ffe9-cb5d-53b8-6464979e70a8)
+wear-pointer debug: rx=0.0/s loss_window=0 (0.0%) latency_ms avg=0.0 min=0.0 max=0.0 dpi=1600 cursor=-
+wear-pointer debug: rx=0.0/s loss_window=0 (0.0%) latency_ms avg=0.0 min=0.0 max=0.0 dpi=1600 cursor=-
+wear-pointer: link up epoch=1 watch (9bbda74e-ffe9-cb5d-53b8-6464979e70a8)
+wear-pointer: subscribed. --debug prints rate, loss, and latency once a second
+wear-pointer debug: rx=11.0/s loss_window=0 (0.0%) latency_ms avg=9.2 min=0.0 max=27.3 dpi=1600 cursor=351,1080
+wear-pointer debug: rx=103.0/s loss_window=0 (0.0%) latency_ms avg=9.4 min=0.0 max=27.6 dpi=1600 cursor=355,1080 aim_hz=99.9 watch_samples=100 notify_ok=82 notify_drop=0
+wear-pointer debug: rx=101.6/s loss_window=0 (0.0%) latency_ms avg=7.1 min=0.0 max=23.4 dpi=1600 cursor=969,539 aim_hz=99.9 watch_samples=100 notify_ok=103 notify_drop=0
+wear-pointer debug: rx=9.0/s loss_window=0 (0.0%) latency_ms avg=7.8 min=0.0 max=13.2 dpi=1600 cursor=971,537 aim_hz=99.8 watch_samples=100 notify_ok=34 notify_drop=0
+wear-pointer debug: rx=102.6/s loss_window=0 (0.0%) latency_ms avg=9.9 min=0.0 max=25.8 dpi=1600 cursor=961,539 aim_hz=99.8 watch_samples=100 notify_ok=77 notify_drop=0
+wear-pointer debug: rx=102.6/s loss_window=0 (0.0%) latency_ms avg=11.1 min=2.5 max=27.4 dpi=1600 cursor=961,539 aim_hz=100.0 watch_samples=100 notify_ok=102 notify_drop=0
+wear-pointer debug: rx=101.0/s loss_window=0 (0.0%) latency_ms avg=11.0 min=0.7 max=23.7 dpi=1600 cursor=965,539 aim_hz=99.8 watch_samples=100 notify_ok=102 notify_drop=0
+wear-pointer debug: rx=102.0/s loss_window=0 (0.0%) latency_ms avg=12.9 min=1.0 max=43.6 dpi=1600 cursor=967,539 aim_hz=99.9 watch_samples=100 notify_ok=103 notify_drop=0
+wear-pointer debug: rx=102.6/s loss_window=0 (0.0%) latency_ms avg=10.5 min=2.1 max=26.5 dpi=1600 cursor=972,540 aim_hz=99.7 watch_samples=100 notify_ok=102 notify_drop=0
+wear-pointer debug: rx=103.6/s loss_window=0 (0.0%) latency_ms avg=11.9 min=1.6 max=27.9 dpi=1600 cursor=976,540 aim_hz=100.0 watch_samples=100 notify_ok=104 notify_drop=0
+wear-pointer debug: rx=100.0/s loss_window=0 (0.0%) latency_ms avg=10.6 min=2.4 max=21.7 dpi=1600 cursor=974,540 aim_hz=99.8 watch_samples=100 notify_ok=102 notify_drop=0
+wear-pointer: sensitivity -> 1800 DPI (speed 1.80x, reach ±13.9°)
+wear-pointer: sensitivity -> 2000 DPI (speed 2.00x, reach ±12.5°)
+wear-pointer debug: rx=104.0/s loss_window=0 (0.0%) latency_ms avg=11.2 min=0.9 max=29.4 dpi=2000 cursor=974,538 aim_hz=99.8 watch_samples=100 notify_ok=102 notify_drop=0
+wear-pointer: sensitivity -> 2200 DPI (speed 2.20x, reach ±11.4°)
+wear-pointer: sensitivity -> 2600 DPI (speed 2.60x, reach ±9.6°)
+wear-pointer debug: rx=102.6/s loss_window=0 (0.0%) latency_ms avg=11.4 min=3.2 max=34.4 dpi=2600 cursor=974,538 aim_hz=99.8 watch_samples=100 notify_ok=104 notify_drop=0
+wear-pointer: sensitivity -> 2400 DPI (speed 2.40x, reach ±10.4°)
+wear-pointer: sensitivity -> 1600 DPI (speed 1.60x, reach ±15.6°)
+wear-pointer debug: rx=103.0/s loss_window=0 (0.0%) latency_ms avg=10.0 min=1.4 max=28.0 dpi=1600 cursor=966,539 aim_hz=99.9 watch_samples=100 notify_ok=103 notify_drop=0
+wear-pointer debug: rx=101.6/s loss_window=0 (0.0%) latency_ms avg=11.7 min=0.7 max=33.9 dpi=1600 cursor=962,540 aim_hz=99.9 watch_samples=100 notify_ok=101 notify_drop=0
+wear-pointer debug: rx=100.0/s loss_window=0 (0.0%) latency_ms avg=10.3 min=1.5 max=22.1 dpi=1600 cursor=963,539 aim_hz=99.9 watch_samples=100 notify_ok=101 notify_drop=0
+wear-pointer debug: rx=65.0/s loss_window=0 (0.0%) latency_ms avg=14.8 min=2.2 max=29.9 dpi=1600 cursor=965,541 aim_hz=99.8 watch_samples=100 notify_ok=95 notify_drop=0
+wear-pointer debug: rx=19.0/s loss_window=0 (0.0%) latency_ms avg=13.1 min=4.4 max=37.9 dpi=1600 cursor=963,540 aim_hz=99.9 watch_samples=100 notify_ok=1 notify_drop=0
+wear-pointer debug: rx=100.0/s loss_window=0 (0.0%) latency_ms avg=11.6 min=2.5 max=28.0 dpi=1600 cursor=965,541 aim_hz=99.9 watch_samples=100 notify_ok=89 notify_drop=0
+wear-pointer debug: rx=11.0/s loss_window=0 (0.0%) latency_ms avg=10.0 min=1.9 max=21.2 dpi=1600 cursor=965,541 aim_hz=99.9 watch_samples=100 notify_ok=89 notify_drop=0
+wear-pointer: link down epoch=1 (device disconnected)
+wear-pointer debug: rx=0.0/s loss_window=0 (0.0%) latency_ms avg=0.0 min=0.0 max=0.0 dpi=1600 cursor=965,541 aim_hz=99.9 watch_samples=100 notify_ok=89 notify_drop=0
+wear-pointer debug: rx=0.0/s loss_window=0 (0.0%) latency_ms avg=0.0 min=0.0 max=0.0 dpi=1600 cursor=965,541 aim_hz=99.9 watch_samples=100 notify_ok=89 notify_drop=0
+wear-pointer: watch disconnected (device disconnected)
+wear-pointer debug: rx=0.0/s loss_window=0 (0.0%) latency_ms avg=0.0 min=0.0 max=0.0 dpi=1600 cursor=965,541 aim_hz=99.9 watch_samples=100 notify_ok=89 notify_drop=0
+wear-pointer: scanning again
+wear-pointer: scanning for the watch
+wear-pointer: connecting to watch (6195d44d-f1cb-d1ce-bc71-6a3a5cce3644)
+wear-pointer debug: rx=0.0/s loss_window=0 (0.0%) latency_ms avg=0.0 min=0.0 max=0.0 dpi=1600 cursor=965,541 aim_hz=99.9 watch_samples=100 notify_ok=89 notify_drop=0
+wear-pointer: link up epoch=2 watch (6195d44d-f1cb-d1ce-bc71-6a3a5cce3644)
+wear-pointer debug: rx=0.0/s loss_window=0 (0.0%) latency_ms avg=0.0 min=0.0 max=0.0 dpi=1600 cursor=-
+wear-pointer: subscribed. --debug prints rate, loss, and latency once a second
+wear-pointer debug: rx=97.0/s loss_window=0 (0.0%) latency_ms avg=16.9 min=0.0 max=108.2 dpi=1600 cursor=1061,543 aim_hz=99.7 watch_samples=100 notify_ok=22 notify_drop=0
+wear-pointer debug: rx=101.6/s loss_window=0 (0.0%) latency_ms avg=9.8 min=0.0 max=44.4 dpi=1600 cursor=958,539 aim_hz=99.8 watch_samples=100 notify_ok=102 notify_drop=0
+wear-pointer: shutting down...
+wear-pointer: link down epoch=2 (shutdown)

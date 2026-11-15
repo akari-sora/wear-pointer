@@ -132,6 +132,16 @@ Sent about once a second while a central is subscribed. This is the Stage 0 coun
 | 12 | u16 | `notifies_drop`. Packets skipped because nobody was subscribed, or the stack rejected the notify. |
 | 14 | u16 | `window_ms`. Length of the window. |
 
+### 9 Sensitivity (10 bytes)
+
+Sent when a central subscribes (alongside `Info`) and immediately whenever the user adjusts pointer DPI on the watch.
+
+| Offset | Type | Field |
+| --- | --- | --- |
+| 8 | u16 | `dpi`. Effective pointer sensitivity in DPI (`400`–`3200`, default `1600`). `1000` DPI corresponds to the classic `±25°` horizontal center-to-edge reach (`speed = 1.0`); `1600` DPI (`speed = 1.6`, `±15.625°` horizontal reach) is the ergonomic seated-desk default. |
+
+Queued `Sensitivity` packets coalesce at the tail of the outbound queue when the user spins the bezel rapidly so intermediate detents do not back up behind an in-flight notification.
+
 ## Control commands (desktop to watch)
 
 One byte written to the control characteristic:

@@ -1,0 +1,28 @@
+[2026-11-15 10:29:12.860 +0800] === macOS (M4 Max) LIVE WATCH7 v0.2.2 VERIFICATION ===
+[2026-11-15 10:29:14.818 +0800] Pre-flight OK: Accessibility trusted, cursor idle (OK 545,732)
+[2026-11-15 10:29:18.285 +0800] Started WearPointer.app v0.2.2 (--backend macos --debug); waiting for CoreBluetooth link up epoch=1...
+[2026-11-15 10:29:21.375 +0800] CoreBluetooth connected on macOS! link up epoch=1 confirmed.
+[2026-11-15 10:29:23.147 +0800] Op 1 [100 Hz Live Aim + 1600 DPI default]: anchored inside NSPanel shield
+[2026-11-15 10:29:25.384 +0800] Op 2 [Center tap (240,341)]: recorded BEFORE_CENTER -> AFTER_CENTER
+[2026-11-15 10:29:26.665 +0800] Op 3 [Left Click tap (240,186) x2]: completed
+[2026-11-15 10:29:28.243 +0800] Op 4 [Hold-to-Drag 850ms]: completed
+[2026-11-15 10:29:28.928 +0800] Op 5 [Right Click tap (110,341)]: completed
+[2026-11-15 10:29:30.748 +0800] Op 6 [Rotary Bezel Scroll +2/+2/-2/-2]: completed
+[2026-11-15 10:29:32.591 +0800] Op 7a [Tap DPI '+' x2: 1600 -> 1800 -> 2000 DPI]
+[2026-11-15 10:29:33.165 +0800] Op 7b [Rotary Bezel clockwise tune DPI in overlay: -> 2400 DPI]
+[2026-11-15 10:29:33.741 +0800] Op 7c [Tap DPI '-' (98,111): -> 2200 DPI]
+[2026-11-15 10:29:34.441 +0800] Op 7d [Tap DPI Reset (240,111) -> 1600 DPI]
+[2026-11-15 10:29:36.499 +0800] Op 8 [Privacy Policy view + Back + Done]: completed
+[2026-11-15 10:29:38.025 +0800] Op 9a [Pause (370,341)]: wakelock=NONE_HELD_WHILE_PAUSED
+[2026-11-15 10:29:39.281 +0800] Op 9b [Resume (370,341)]: wakelock=  PARTIAL_WAKE_LOCK                 'wear-pointer:sensors' ACQ=-113ms (uid=10004 pid=12039 pkg=dev.wearpointer.app displayId=0 lock=bbc03e4)
+[2026-11-15 10:29:41.297 +0800] Op 10a [Stop (240,426)]: stopped Watch7 BLE peripheral
+[2026-11-15 10:29:41.616 +0800] Op 10b [Start (240,426)]: waiting for CoreBluetooth auto-reconnect link up epoch>=2...
+[2026-11-15 10:29:45.743 +0800] Auto-reconnected on macOS! link up epoch>=2 confirmed.
+[2026-11-15 10:29:48.231 +0800] Op 10c [Post-reconnect Center + Left Click]: completed
+[2026-11-15 10:29:49.111 +0800] === macOS LIVE VERIFICATION COMPLETE ===
+SCREEN=1920x1080
+SHIELD_RECT=730,360,460x360
+ORIG_CUR=545,732
+BEFORE_CENTER=1055,465
+AFTER_CENTER=960,539
+RESTORED_CURSOR=545,732

@@ -17,8 +17,14 @@ object Packets {
     const val KIND_INFO: Int = 6
     const val KIND_DRAG: Int = 7
     const val KIND_STATS: Int = 8
+    const val KIND_SENSITIVITY: Int = 9
     const val CONTROL_REQUEST_STATS: Int = 0x01
     const val HOLD_TO_DRAG_MS: Long = 350
+    const val BASE_DPI: Int = 1000
+    const val DEFAULT_DPI: Int = 1600
+    const val MIN_DPI: Int = 400
+    const val MAX_DPI: Int = 3200
+    const val DPI_STEP: Int = 200
     const val MAX_PACKET_BYTES: Int = 20
 
     val SERVICE_UUID: UUID = UUID.fromString("7a1e0001-4c3b-4e2a-9f10-6d5c4b3a2910")
@@ -100,6 +106,17 @@ object Packets {
         putU16(out, 10, notifiesOk)
         putU16(out, 12, notifiesDrop)
         putU16(out, 14, windowMs)
+        return out
+    }
+
+    fun sensitivity(
+        sequence: Int,
+        timestampUs: Long,
+        dpi: Int,
+    ): ByteArray {
+        val out = ByteArray(10)
+        header(out, KIND_SENSITIVITY, sequence, timestampUs)
+        putU16(out, 8, dpi.coerceIn(MIN_DPI, MAX_DPI))
         return out
     }
 

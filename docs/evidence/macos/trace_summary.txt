@@ -1,0 +1,42 @@
+# start_unix 1794709758.271508
+2.801659 connected 1 watch (9bbda74e-ffe9-cb5d-53b8-6464979e70a8)
+2.889134 rx 1 01060000322f129a6401e503534d2d4c333130
+2.891283 rx 1 010901009d43129a4006
+2.921150 rx 1 010002006279129aee03ebfb
+2.922503 move 351.0 1080.0
+2.951443 rx 1 010003008b39139aee03ebfb
+2.951444 rx 1 01000400aa60139aed03ebfb
+2.980028 rx 1 01000500c587139aed03ebfb
+2.981330 rx 1 01000600e3ae139aed03ebfb
+2.983802 move 351.1 1080.0
+3.008845 rx 1 0100070014d6139aed03ebfb
+3.011055 rx 1 010008005dfe139aed03ebfb
+3.011056 rx 1 010009003c24149aed03ebfb
+3.011057 rx 1 01000a005b4b149aed03ebfb
+# --- non-move actions, live DPI updates, and link epochs ---
+# start_unix 1794709758.271508
+2.801659 connected 1 watch (9bbda74e-ffe9-cb5d-53b8-6464979e70a8)
+7.263001 button Left down
+7.263020 button Left up
+7.921328 button Left down
+7.921346 button Left up
+8.988013 button Left down
+9.483899 button Left up
+10.187997 button Right down
+10.188006 button Right up
+10.879469 scroll -272
+11.267130 scroll -272
+11.658809 scroll 272
+12.067153 scroll 272
+13.458798 dpi 1800
+13.937966 dpi 2000
+14.446293 dpi 2200
+14.467178 dpi 2600
+15.108801 dpi 2400
+15.696306 dpi 1600
+22.221289 disconnected 1 device disconnected
+27.046291 connected 2 watch (6195d44d-f1cb-d1ce-bc71-6a3a5cce3644)
+29.329712 button Left down
+29.329729 button Left up
+29.991815 disconnected 2 shutdown
+# total_rx=1940 total_moves=1288

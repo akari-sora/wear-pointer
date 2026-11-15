@@ -151,6 +151,7 @@ fn main() {
                 notifies_drop,
                 ..
             } => println!("   seq {seq} Stats samples={samples} ok={notifies_ok} drop={notifies_drop}"),
+            Packet::Sensitivity { dpi, .. } => println!("   seq {seq} Sensitivity {dpi} DPI"),
             Packet::Info { .. } | Packet::Unknown { .. } => {}
         }
         let actions = session.push_packet(&bytes, local_s);

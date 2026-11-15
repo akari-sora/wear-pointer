@@ -85,6 +85,8 @@ private val AccentRose = Color(0xFFF43F5E)
 fun RemoteScreen(
     onRequestPermissions: () -> Unit,
     onRole: (PointerRuntime.Role) -> Unit,
+    onDpi: (Int) -> Unit,
+    onStepDpi: (Int) -> Unit,
     onStop: () -> Unit,
     onStart: () -> Unit,
 ) {
@@ -92,6 +94,8 @@ fun RemoteScreen(
     val focus = remember { FocusRequester() }
     val view = LocalView.current
     var showTelemetry by remember { mutableStateOf(false) }
+    var showPrivacy by remember { mutableStateOf(false) }
+    var rotaryDpiAccum by remember { mutableStateOf(0f) }
 
     val isStopped = ui.status == "Stopped"
     val hasGapNotice = ui.status.startsWith("Sensor gap")
@@ -110,8 +114,24 @@ fun RemoteScreen(
                 .fillMaxSize()
                 .background(PitchBlack)
                 // Compose UI's onRotaryScrollEvent receives Wear touch-bezel / crown scroll.
+                // On the Settings/Telemetry overlay it steps DPI; otherwise it scrolls the desktop.
                 .onRotaryScrollEvent { event ->
-                    PointerRuntime.scrollBy(event.verticalScrollPixels)
+                    if (showTelemetry && !showPrivacy) {
+                        rotaryDpiAccum += event.verticalScrollPixels
+                        val detentPx = 42f
+                        while (rotaryDpiAccum >= detentPx) {
+                            rotaryDpiAccum -= detentPx
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            onStepDpi(1)
+                        }
+                        while (rotaryDpiAccum <= -detentPx) {
+                            rotaryDpiAccum += detentPx
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            onStepDpi(-1)
+                        }
+                    } else {
+                        PointerRuntime.scrollBy(event.verticalScrollPixels)
+                    }
                     true
                 }
                 .focusRequester(focus)
@@ -235,8 +255,15 @@ fun RemoteScreen(
                 TelemetryOverlay(
                     ui = ui,
                     sightColor = sightColor,
+                    showPrivacy = showPrivacy,
+                    onShowPrivacy = { showPrivacy = it },
                     onRole = onRole,
-                    onDismiss = { showTelemetry = false },
+                    onDpi = onDpi,
+                    onStepDpi = onStepDpi,
+                    onDismiss = {
+                        showPrivacy = false
+                        showTelemetry = false
+                    },
                 )
             }
         }
@@ -297,11 +324,11 @@ private fun StatusCapsule(
         ui.status.startsWith("Sensor gap") -> "RECENTERED"
         ui.paused -> "PAUSED · AWAKE"
         ui.connected -> {
-            val hz = if (ui.samplesPerSec > 0) "${ui.samplesPerSec} HZ" else "LIVE"
-            "LINKED · $hz"
+            val hz = if (ui.samplesPerSec > 0) "${ui.samplesPerSec}HZ" else "LIVE"
+            "$hz · ${ui.dpi} DPI"
         }
         ui.status.startsWith("Link dropped") -> "RECONNECTING"
-        ui.status.contains("Advertising", ignoreCase = true) -> "ADVERTISING"
+        ui.status.contains("Advertising", ignoreCase = true) -> "ADV · ${ui.dpi} DPI"
         ui.status.contains("Scanning", ignoreCase = true) -> "SCANNING"
         else -> ui.status.uppercase()
     }
@@ -472,11 +499,13 @@ private fun ClickPad(ui: PointerRuntime.UiState, modifier: Modifier) {
                 )
             }
 
-            // Live spatial aim puck: mirrors desktop cursor direction (±25° -> reachR).
+            // Live spatial aim puck: mirrors desktop cursor direction at active DPI reach.
+            val reachDeg = (25f * Packets.BASE_DPI / ui.dpi.coerceAtLeast(Packets.MIN_DPI))
+                .coerceIn(6f, 65f)
             val leftDeg = ui.aimLeftCdeg / 100f
             val upDeg = ui.aimUpCdeg / 100f
-            val normX = (-leftDeg / 25f).coerceIn(-1f, 1f)
-            val normY = (-upDeg / 25f).coerceIn(-1f, 1f)
+            val normX = (-leftDeg / reachDeg).coerceIn(-1f, 1f)
+            val normY = (-upDeg / reachDeg).coerceIn(-1f, 1f)
             val mag = kotlin.math.hypot(normX, normY).coerceAtLeast(1f)
             val dotCenter = Offset(
                 x = cx + (normX / mag) * reachR,
@@ -659,19 +688,26 @@ private fun CenteredNoticeScreen(
 private fun TelemetryOverlay(
     ui: PointerRuntime.UiState,
     sightColor: Color,
+    showPrivacy: Boolean,
+    onShowPrivacy: (Boolean) -> Unit,
     onRole: (PointerRuntime.Role) -> Unit,
+    onDpi: (Int) -> Unit,
+    onStepDpi: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var showPrivacy by remember { mutableStateOf(false) }
+    val view = LocalView.current
     if (showPrivacy) {
         PrivacyOverlay(
             sightColor = sightColor,
-            onBack = { showPrivacy = false },
+            onBack = { onShowPrivacy(false) },
         )
         return
     }
     val leftDeg = "%+.1f°".format(ui.aimLeftCdeg / 100f)
     val upDeg = "%+.1f°".format(ui.aimUpCdeg / 100f)
+    val reachDeg = "%.1f°".format(25f * Packets.BASE_DPI / ui.dpi.coerceAtLeast(Packets.MIN_DPI))
+    val canDecrease = ui.dpi > Packets.MIN_DPI
+    val canIncrease = ui.dpi < Packets.MAX_DPI
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -683,53 +719,127 @@ private fun TelemetryOverlay(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 18.dp)
+                .padding(horizontal = 24.dp, vertical = 14.dp)
                 .clickable(enabled = false) {},
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
-                text = "TELEMETRY",
+                text = "SENSITIVITY · TELEMETRY",
                 color = TextSecondary,
-                fontSize = 9.5.sp,
+                fontSize = 8.5.sp,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.SemiBold,
-                letterSpacing = 1.sp,
+                letterSpacing = 0.6.sp,
+                maxLines = 1,
             )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(34.dp)
+                    .clip(CircleShape)
+                    .background(SurfaceElevated)
+                    .border(1.dp, BorderStrong, CircleShape)
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 36.dp, height = 26.dp)
+                        .clip(CircleShape)
+                        .background(SurfaceIdle)
+                        .border(1.dp, if (canDecrease) BorderStrong else BorderSubtle, CircleShape)
+                        .clickable(enabled = canDecrease) {
+                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            onStepDpi(-1)
+                        }
+                        .semantics { contentDescription = "Decrease DPI" },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "−",
+                        color = if (canDecrease) TextPrimary else TextMuted,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                            onDpi(Packets.DEFAULT_DPI)
+                        }
+                        .semantics { contentDescription = "Reset DPI to default" },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        text = "${ui.dpi} DPI",
+                        color = AccentEmerald,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = "±$reachDeg · BEZEL TUNES",
+                        color = TextMuted,
+                        fontSize = 7.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(width = 36.dp, height = 26.dp)
+                        .clip(CircleShape)
+                        .background(SurfaceIdle)
+                        .border(1.dp, if (canIncrease) BorderStrong else BorderSubtle, CircleShape)
+                        .clickable(enabled = canIncrease) {
+                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            onStepDpi(1)
+                        }
+                        .semantics { contentDescription = "Increase DPI" },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "+",
+                        color = if (canIncrease) TextPrimary else TextMuted,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
 
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(5.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     MetricTile("SENSOR", "${ui.samplesPerSec} Hz", Modifier.weight(1f))
                     MetricTile("SENT/S", "${ui.sentPerSec}", Modifier.weight(1f))
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     MetricTile("DROP/S", "${ui.droppedPerSec}", Modifier.weight(1f))
                     MetricTile("AIM L/U", "$leftDeg $upDeg", Modifier.weight(1f), compact = true)
                 }
             }
 
-            Text(
-                text = ui.status,
-                color = TextSecondary,
-                fontSize = 9.sp,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-
             val watchAdv = ui.role == PointerRuntime.Role.WATCH_ADVERTISES
             Box(
                 modifier = Modifier
-                    .height(26.dp)
+                    .height(23.dp)
                     .clip(CircleShape)
                     .background(SurfaceIdle)
                     .border(1.dp, BorderSubtle, CircleShape)
@@ -741,13 +851,14 @@ private fun TelemetryOverlay(
                         }
                         onRole(next)
                     }
+                    .semantics { contentDescription = "Switch BLE role" }
                     .padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = if (watchAdv) "Role: Watch Adv" else "Role: Desktop Adv",
                     color = TextPrimary,
-                    fontSize = 9.5.sp,
+                    fontSize = 9.sp,
                     fontFamily = FontFamily.Monospace,
                 )
             }
@@ -758,35 +869,37 @@ private fun TelemetryOverlay(
             ) {
                 Box(
                     modifier = Modifier
-                        .height(24.dp)
+                        .height(23.dp)
                         .clip(CircleShape)
                         .background(SurfaceIdle)
                         .border(1.dp, BorderSubtle, CircleShape)
-                        .clickable { showPrivacy = true }
+                        .clickable { onShowPrivacy(true) }
+                        .semantics { contentDescription = "Privacy Policy" }
                         .padding(horizontal = 12.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = "Privacy",
                         color = TextSecondary,
-                        fontSize = 9.5.sp,
+                        fontSize = 9.sp,
                         fontWeight = FontWeight.Medium,
                     )
                 }
                 Box(
                     modifier = Modifier
-                        .width(70.dp)
-                        .height(24.dp)
+                        .width(68.dp)
+                        .height(23.dp)
                         .clip(CircleShape)
                         .background(SurfaceElevated)
                         .border(1.dp, BorderStrong, CircleShape)
-                        .clickable(onClick = onDismiss),
+                        .clickable(onClick = onDismiss)
+                        .semantics { contentDescription = "Done" },
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = "Done",
                         color = TextPrimary,
-                        fontSize = 10.sp,
+                        fontSize = 9.5.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
@@ -860,7 +973,7 @@ private fun MetricTile(
 ) {
     Column(
         modifier = modifier
-            .height(34.dp)
+            .height(29.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(SurfaceIdle)
             .border(1.dp, BorderSubtle, RoundedCornerShape(10.dp))

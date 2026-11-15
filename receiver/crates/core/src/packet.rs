@@ -11,6 +11,11 @@ pub const HEADER_LEN: usize = 8;
 pub const SENSOR_HZ: u32 = 100;
 pub const CURSOR_HZ: u32 = 240;
 pub const HOLD_TO_DRAG_MS: u32 = 350;
+pub const BASE_DPI: u16 = 1000;
+pub const DEFAULT_DPI: u16 = 1600;
+pub const MIN_DPI: u16 = 400;
+pub const MAX_DPI: u16 = 3200;
+pub const DPI_STEP: u16 = 200;
 
 pub const KIND_AIM: u8 = 0;
 pub const KIND_LEFT_CLICK: u8 = 1;
@@ -21,6 +26,7 @@ pub const KIND_PAUSE: u8 = 5;
 pub const KIND_INFO: u8 = 6;
 pub const KIND_DRAG: u8 = 7;
 pub const KIND_STATS: u8 = 8;
+pub const KIND_SENSITIVITY: u8 = 9;
 
 pub const CONTROL_REQUEST_STATS: u8 = 0x01;
 
@@ -74,6 +80,10 @@ pub enum Packet {
         notifies_drop: u16,
         window_ms: u16,
     },
+    Sensitivity {
+        header: Header,
+        dpi: u16,
+    },
     Unknown {
         header: Header,
     },
@@ -91,6 +101,7 @@ impl Packet {
             | Packet::Info { header, .. }
             | Packet::Drag { header, .. }
             | Packet::Stats { header, .. }
+            | Packet::Sensitivity { header, .. }
             | Packet::Unknown { header } => header,
         }
     }
@@ -157,6 +168,9 @@ pub fn encode(packet: &Packet) -> Vec<u8> {
             out.extend_from_slice(&notifies_ok.to_le_bytes());
             out.extend_from_slice(&notifies_drop.to_le_bytes());
             out.extend_from_slice(&window_ms.to_le_bytes());
+        }
+        Packet::Sensitivity { dpi, .. } => {
+            out.extend_from_slice(&dpi.to_le_bytes());
         }
         Packet::LeftClick { .. } | Packet::RightClick { .. } | Packet::Center { .. } => {}
         Packet::Unknown { .. } => {}
@@ -244,6 +258,13 @@ pub fn decode(bytes: &[u8]) -> Result<Packet, PacketError> {
                 window_ms: u16::from_le_bytes([bytes[14], bytes[15]]),
             }
         }
+        KIND_SENSITIVITY => {
+            need(10)?;
+            Packet::Sensitivity {
+                header,
+                dpi: u16::from_le_bytes([bytes[8], bytes[9]]),
+            }
+        }
         _ => Packet::Unknown { header },
     })
 }
@@ -302,10 +323,16 @@ mod tests {
         assert_eq!(json["sensor_hz"], SENSOR_HZ);
         assert_eq!(json["cursor_hz"], CURSOR_HZ);
         assert_eq!(json["hold_to_drag_ms"], HOLD_TO_DRAG_MS);
+        assert_eq!(json["base_dpi"], BASE_DPI);
+        assert_eq!(json["default_dpi"], DEFAULT_DPI);
+        assert_eq!(json["min_dpi"], MIN_DPI);
+        assert_eq!(json["max_dpi"], MAX_DPI);
+        assert_eq!(json["dpi_step"], DPI_STEP);
         assert_eq!(json["max_packet_bytes"], MAX_PACKET_LEN);
         assert_eq!(json["aim_vector_hex"], "01000100e8030000d204ceff");
         assert_eq!(json["kinds"]["aim"], KIND_AIM);
         assert_eq!(json["kinds"]["stats"], KIND_STATS);
+        assert_eq!(json["kinds"]["sensitivity"], KIND_SENSITIVITY);
         assert_eq!(
             json["control_commands"]["request_stats"],
             CONTROL_REQUEST_STATS
@@ -349,6 +376,10 @@ mod tests {
                 notifies_ok: 97,
                 notifies_drop: 3,
                 window_ms: 1000,
+            },
+            Packet::Sensitivity {
+                header: header(KIND_SENSITIVITY, 10, 13),
+                dpi: 1600,
             },
         ];
         for packet in samples {

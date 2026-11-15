@@ -56,5 +56,23 @@ class AimAndPacketTest {
         assertEquals(Packets.KIND_STATS.toByte(), bytes[1])
     }
 
+    @Test
+    fun sensitivityPacketEncodesLittleEndianDpiAndClampsBounds() {
+        assertEquals(1600, Packets.DEFAULT_DPI)
+        val def = Packets.sensitivity(2, 500, Packets.DEFAULT_DPI)
+        assertEquals(10, def.size)
+        assertEquals(Packets.KIND_SENSITIVITY.toByte(), def[1])
+        val dpi = (def[8].toInt() and 0xFF) or ((def[9].toInt() and 0xFF) shl 8)
+        assertEquals(1600, dpi)
+
+        val low = Packets.sensitivity(3, 600, 50)
+        val lowDpi = (low[8].toInt() and 0xFF) or ((low[9].toInt() and 0xFF) shl 8)
+        assertEquals(Packets.MIN_DPI, lowDpi)
+
+        val high = Packets.sensitivity(4, 700, 9999)
+        val highDpi = (high[8].toInt() and 0xFF) or ((high[9].toInt() and 0xFF) shl 8)
+        assertEquals(Packets.MAX_DPI, highDpi)
+    }
+
     private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 }

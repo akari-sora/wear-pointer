@@ -263,6 +263,20 @@ class OutboundQueueTest {
         assertEquals(0, queue.queuedCritical())
     }
 
+    @Test
+    fun sensitivityCoalescesRapidBezelStepsWhileNotificationInFlight() {
+        val queue = OutboundQueue()
+        send(queue.enqueue(Packets.aim(0, 0, 0, 0)))
+        assertTrue(queue.enqueue(Packets.sensitivity(0, 1_000, 1800)) is OutboundQueue.Transmit.Idle)
+        assertTrue(queue.enqueue(Packets.sensitivity(0, 2_000, 2000)) is OutboundQueue.Transmit.Idle)
+        assertTrue(queue.enqueue(Packets.sensitivity(0, 3_000, 2200)) is OutboundQueue.Transmit.Idle)
+        val next = send(queue.onFinished(success = true))
+        assertEquals(Packets.KIND_SENSITIVITY, kind(next))
+        val sentDpi = (next[8].toInt() and 0xFF) or ((next[9].toInt() and 0xFF) shl 8)
+        assertEquals(2200, sentDpi)
+        assertTrue(queue.onFinished(success = true) is OutboundQueue.Transmit.Idle)
+    }
+
     /** Completes every flight successfully and returns what went out after the current one. */
     private fun drain(queue: OutboundQueue): List<ByteArray> {
         val sent = ArrayList<ByteArray>()

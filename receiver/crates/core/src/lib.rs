@@ -14,12 +14,13 @@ mod stats;
 pub use aim::{AimSample, AimTracker};
 pub use filter::OneEuroFilter;
 pub use packet::{
-    control, decode, encode, Packet, PacketError, CONTROL_REQUEST_STATS, CONTROL_UUID, CURSOR_HZ,
-    HEADER_LEN, HOLD_TO_DRAG_MS, KIND_AIM, KIND_CENTER, KIND_DRAG, KIND_INFO, KIND_LEFT_CLICK,
-    KIND_PAUSE, KIND_RIGHT_CLICK, KIND_SCROLL, KIND_STATS, MAX_PACKET_LEN, POINTER_UUID, SENSOR_HZ,
+    control, decode, encode, Packet, PacketError, BASE_DPI, CONTROL_REQUEST_STATS, CONTROL_UUID,
+    CURSOR_HZ, DEFAULT_DPI, DPI_STEP, HEADER_LEN, HOLD_TO_DRAG_MS, KIND_AIM, KIND_CENTER,
+    KIND_DRAG, KIND_INFO, KIND_LEFT_CLICK, KIND_PAUSE, KIND_RIGHT_CLICK, KIND_SCROLL,
+    KIND_SENSITIVITY, KIND_STATS, MAX_DPI, MAX_PACKET_LEN, MIN_DPI, POINTER_UUID, SENSOR_HZ,
     SERVICE_UUID, VERSION,
 };
-pub use project::{project_aim, reach_degrees, Screen};
+pub use project::{dpi_to_speed, project_aim, reach_degrees, speed_to_dpi, Screen};
 pub use session::{Button, CursorAction, DebugSnapshot, PointerSession, SessionConfig};
 pub use stats::{LinkStats, Timing};
 

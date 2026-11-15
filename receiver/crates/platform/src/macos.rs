@@ -5,6 +5,10 @@
 
 use crate::PointerBackend;
 use anyhow::{anyhow, Result};
+use core_foundation::base::{CFTypeRef, TCFType};
+use core_foundation::boolean::CFBoolean;
+use core_foundation::dictionary::CFDictionary;
+use core_foundation::string::CFString;
 use core_graphics::display::CGDisplay;
 use core_graphics::event::{
     CGEvent, CGEventTapLocation, CGEventType, CGMouseButton, ScrollEventUnit,
@@ -12,6 +16,12 @@ use core_graphics::event::{
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use core_graphics::geometry::CGPoint;
 use wear_pointer_core::{Button, Screen};
+
+#[link(name = "ApplicationServices", kind = "framework")]
+extern "C" {
+    fn AXIsProcessTrusted() -> bool;
+    fn AXIsProcessTrustedWithOptions(options: CFTypeRef) -> bool;
+}
 
 pub struct MacosBackend {
     screen: Screen,
@@ -23,6 +33,11 @@ pub struct MacosBackend {
 
 impl MacosBackend {
     pub fn open(screen_override: Option<Screen>) -> Self {
+        Self::check_accessibility(true);
+        Self::open_unprompted(screen_override)
+    }
+
+    pub fn open_unprompted(screen_override: Option<Screen>) -> Self {
         let screen = screen_override.unwrap_or_else(|| {
             let bounds = CGDisplay::main().bounds();
             if bounds.size.width > 1.0 && bounds.size.height > 1.0 {
@@ -32,6 +47,31 @@ impl MacosBackend {
             }
         });
         Self::new(screen)
+    }
+
+    /// Queries macOS TCC Accessibility trust and optionally triggers the
+    /// standard system prompt (`kAXTrustedCheckOptionPrompt`) when untrusted.
+    pub fn check_accessibility(prompt: bool) -> bool {
+        let trusted = unsafe {
+            if prompt {
+                let key = CFString::new("AXTrustedCheckOptionPrompt");
+                let dict = CFDictionary::from_CFType_pairs(&[(
+                    key.as_CFType(),
+                    CFBoolean::true_value().as_CFType(),
+                )]);
+                AXIsProcessTrustedWithOptions(dict.as_CFTypeRef())
+            } else {
+                AXIsProcessTrusted()
+            }
+        };
+        if !trusted {
+            eprintln!(
+                "wear-pointer: warning: macOS Accessibility permission is not yet granted; \
+                 CGEventPost cursor/click events will be ignored until allowed in \
+                 System Settings -> Privacy & Security -> Accessibility."
+            );
+        }
+        trusted
     }
 
     pub fn new(screen: Screen) -> Self {
@@ -112,10 +152,10 @@ mod tests {
 
     #[test]
     fn open_detects_positive_display_bounds_and_respects_override() {
-        let detected = MacosBackend::open(None).screen();
+        let detected = MacosBackend::open_unprompted(None).screen();
         assert!(detected.width > 1.0 && detected.height > 1.0);
 
-        let custom = MacosBackend::open(Some(Screen::new(1440.0, 900.0))).screen();
+        let custom = MacosBackend::open_unprompted(Some(Screen::new(1440.0, 900.0))).screen();
         assert_eq!(custom, Screen::new(1440.0, 900.0));
     }
 

@@ -1,0 +1,39 @@
+# start_unix 1794708529.108620
+3.579974 connected 1 SM-L310 (hci0/dev_7C_EB_EF_F3_15_96)
+4.007028 rx 1 010600009c65dd506401e603534d2d4c333130
+4.007039 rx 1 010901003a85dd504006
+4.055629 rx 1 01000200a3c9dd50ed000000
+4.059136 move 817.9 600.0
+4.055637 rx 1 01000300e817de50ed000000
+4.055641 rx 1 010004004d66de50ed00feff
+4.057476 rx 1 01000500748dde50ed00feff
+4.057481 rx 1 0100060097b4de50ed00feff
+4.057554 rx 1 01000700bfdbde50ed00ffff
+4.059170 move 817.9 600.1
+4.063286 move 817.9 600.2
+4.104672 rx 1 01000800e002df50ed00ffff
+4.104679 rx 1 01000900052adf50ed00ffff
+# --- non-move actions, live DPI updates, and link epochs ---
+# start_unix 1794708529.108620
+3.579974 connected 1 SM-L310 (hci0/dev_7C_EB_EF_F3_15_96)
+7.171663 button Left down
+7.171670 button Left up
+7.788322 button Left down
+7.788328 button Left up
+8.792505 button Left down
+9.271657 button Left up
+9.992476 button Right down
+9.992480 button Right up
+10.609131 scroll -272
+11.013289 scroll -272
+11.388294 scroll 272
+11.763287 scroll 272
+13.204955 dpi 1800
+13.713282 dpi 2000
+14.225782 dpi 2400
+15.213285 dpi 2200
+15.738291 dpi 1600
+23.300781 disconnected 1 device disconnected
+37.896615 connected 3 watch (hci0/dev_7E_48_E1_CD_D5_32)
+42.121680 disconnected 3 shutdown
+# total_rx=2022 total_moves=1461

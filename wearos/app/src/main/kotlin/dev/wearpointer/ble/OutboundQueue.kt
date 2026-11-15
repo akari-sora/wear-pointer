@@ -62,6 +62,10 @@ class OutboundQueue {
     fun enqueue(packet: ByteArray): Transmit {
         when (kind(packet)) {
             Packets.KIND_AIM -> enqueueAim(packet)
+            Packets.KIND_SENSITIVITY -> {
+                dropTrailingKind(Packets.KIND_SENSITIVITY)
+                waiting.addLast(packet)
+            }
             Packets.KIND_CENTER, Packets.KIND_PAUSE -> {
                 dropTrailingAim()
                 waiting.addLast(packet)
@@ -101,7 +105,7 @@ class OutboundQueue {
         } else {
             rejected++
             val k = kind(packet)
-            if (k != Packets.KIND_AIM && k != Packets.KIND_STATS) {
+            if (k != Packets.KIND_AIM && k != Packets.KIND_STATS && k != Packets.KIND_SENSITIVITY) {
                 abandon()
                 return Transmit.DropLink
             }
@@ -147,9 +151,11 @@ class OutboundQueue {
         waiting.addLast(packet)
     }
 
-    private fun dropTrailingAim() {
+    private fun dropTrailingAim() = dropTrailingKind(Packets.KIND_AIM)
+
+    private fun dropTrailingKind(targetKind: Int) {
         val tail = waiting.peekLast() ?: return
-        if (kind(tail) == Packets.KIND_AIM) {
+        if (kind(tail) == targetKind) {
             waiting.removeLast()
             coalesced++
         }

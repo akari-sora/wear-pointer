@@ -6,8 +6,8 @@
 //! Umar Afzal, MIT).
 
 use crate::filter::OneEuroFilter;
-use crate::packet::{decode, Packet};
-use crate::project::{project_aim, reach_degrees, Screen};
+use crate::packet::{decode, Packet, DEFAULT_DPI, MAX_DPI, MIN_DPI};
+use crate::project::{dpi_to_speed, project_aim, reach_degrees, speed_to_dpi, Screen};
 use crate::stats::{LinkStats, WindowStats};
 use crate::{FRESH_GAP_S, MAX_FILTER_DT_S};
 
@@ -41,6 +41,8 @@ pub struct DebugSnapshot {
     /// Watch gyroscope rate from the stats packet, samples / window, not the
     /// desktop's all-kind receive rate.
     pub remote_aim_hz: Option<f64>,
+    pub effective_dpi: u16,
+    pub remote_dpi: Option<u16>,
     pub cursor_x: Option<f64>,
     pub cursor_y: Option<f64>,
 }
@@ -48,6 +50,9 @@ pub struct DebugSnapshot {
 #[derive(Clone, Debug)]
 pub struct SessionConfig {
     pub speed: f64,
+    /// When explicitly set via `--dpi` or `--speed`, scales watch DPI adjustments
+    /// relative to `DEFAULT_DPI` so both CLI preference and live wrist tuning work.
+    pub cli_speed_override: Option<f64>,
     /// 1€ cutoff while the hand is still, in Hz.
     pub steady_hz: f64,
     /// 1€ speed coefficient. Higher means less lag on a fast move.
@@ -64,7 +69,8 @@ pub struct SessionConfig {
 impl Default for SessionConfig {
     fn default() -> Self {
         Self {
-            speed: 1.0,
+            speed: dpi_to_speed(DEFAULT_DPI),
+            cli_speed_override: None,
             steady_hz: 0.8,
             quickness: 0.01,
             dead_zone_deg: 0.0,
@@ -136,6 +142,7 @@ pub struct PointerSession {
     last_debug_s: Option<f64>,
     paused: bool,
     dragging: bool,
+    remote_dpi: Option<u16>,
     /// False after `on_disconnected` until the next `on_connected`. Starts
     /// open so unit tests can feed packets without a fake link.
     link_open: bool,
@@ -160,6 +167,7 @@ impl PointerSession {
             last_debug_s: None,
             paused: false,
             dragging: false,
+            remote_dpi: None,
             link_open: true,
             history: Vec::new(),
         }
@@ -171,6 +179,26 @@ impl PointerSession {
 
     pub fn screen(&self) -> Screen {
         self.config.screen
+    }
+
+    pub fn effective_speed(&self) -> f64 {
+        match (self.config.cli_speed_override, self.remote_dpi) {
+            (None, Some(watch_dpi)) => dpi_to_speed(watch_dpi.clamp(MIN_DPI, MAX_DPI)),
+            (None, None) => self.config.speed,
+            (Some(cli_speed), Some(watch_dpi)) => {
+                let ratio = f64::from(watch_dpi.clamp(MIN_DPI, MAX_DPI)) / f64::from(DEFAULT_DPI);
+                (cli_speed * ratio).clamp(0.1, 6.4)
+            }
+            (Some(cli_speed), None) => cli_speed,
+        }
+    }
+
+    pub fn effective_dpi(&self) -> u16 {
+        speed_to_dpi(self.effective_speed())
+    }
+
+    pub fn remote_dpi(&self) -> Option<u16> {
+        self.remote_dpi
     }
 
     /// New BLE session. Drops sequence, clock, filters, cursor history, remote
@@ -186,6 +214,7 @@ impl PointerSession {
         self.last_aim_deg = None;
         self.last_aim_local_s = None;
         self.paused = false;
+        self.remote_dpi = None;
         self.history.clear();
         self.link_open = true;
         release
@@ -251,6 +280,10 @@ impl PointerSession {
                     .note_remote(samples, notifies_ok, notifies_drop, window_ms);
                 Vec::new()
             }
+            Packet::Sensitivity { dpi, .. } => {
+                self.remote_dpi = Some(dpi.clamp(MIN_DPI, MAX_DPI));
+                Vec::new()
+            }
             Packet::Info { .. } | Packet::Unknown { .. } => Vec::new(),
         }
     }
@@ -314,7 +347,7 @@ impl PointerSession {
             left,
             up,
             self.config.screen,
-            reach_degrees(self.config.speed),
+            reach_degrees(self.effective_speed()),
         );
         let raw = (
             projected.0.clamp(0.0, self.config.screen.width.max(0.0)),
@@ -489,6 +522,8 @@ fn snapshot_from(session: &PointerSession, window: &WindowStats, elapsed: f64) -
         remote_notify_ok: session.stats.remote_notify_ok,
         remote_notify_drop: session.stats.remote_notify_drop,
         remote_aim_hz: remote_aim_hz(session),
+        effective_dpi: session.effective_dpi(),
+        remote_dpi: session.remote_dpi(),
         cursor_x: session.follower.shown.map(|p| p.0),
         cursor_y: session.follower.shown.map(|p| p.1),
     }
@@ -519,8 +554,10 @@ fn rewind_point(history: &[(f64, f64, f64)], time: f64, fallback: (f64, f64)) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(test)]
     use crate::packet::{
         encode, header, Packet, KIND_AIM, KIND_DRAG, KIND_LEFT_CLICK, KIND_PAUSE, KIND_SCROLL,
+        KIND_SENSITIVITY,
     };
 
     fn session() -> PointerSession {
@@ -768,5 +805,69 @@ mod tests {
             }]
         );
         assert_eq!(session.target, Some((2000.0, 1000.0)));
+    }
+
+    #[test]
+    fn default_config_is_1600_dpi_ergonomic_reach() {
+        let s = PointerSession::new(SessionConfig::default());
+        assert_eq!(s.effective_dpi(), 1600);
+        assert!((s.effective_speed() - 1.6).abs() < 1e-9);
+        assert!((reach_degrees(s.effective_speed()) - 15.625).abs() < 1e-6);
+    }
+
+    #[test]
+    fn watch_sensitivity_packet_updates_live_dpi_and_projection() {
+        let mut s = session();
+        let low = encode(&Packet::Sensitivity {
+            header: header(KIND_SENSITIVITY, 1, 0),
+            dpi: 800,
+        });
+        s.push_packet(&low, 0.0);
+        assert_eq!(s.effective_dpi(), 800);
+        let low_move = s.push_packet(&aim(2, 10_000, 500, 0), 0.01);
+        let low_x = match low_move[0] {
+            CursorAction::Move { x, .. } => x,
+            other => panic!("expected move, got {other:?}"),
+        };
+
+        let mut fast = session();
+        let high = encode(&Packet::Sensitivity {
+            header: header(KIND_SENSITIVITY, 1, 0),
+            dpi: 2400,
+        });
+        fast.push_packet(&high, 0.0);
+        assert_eq!(fast.effective_dpi(), 2400);
+        let high_move = fast.push_packet(&aim(2, 10_000, 500, 0), 0.01);
+        let high_x = match high_move[0] {
+            CursorAction::Move { x, .. } => x,
+            other => panic!("expected move, got {other:?}"),
+        };
+        // Turning 5 deg left from center (1000) moves significantly farther left at 2400 DPI than 800 DPI.
+        assert!(high_x < low_x, "expected {high_x} < {low_x}");
+    }
+
+    #[test]
+    fn cli_dpi_override_preserves_initial_value_and_scales_with_watch_changes() {
+        let mut cfg = SessionConfig::default();
+        cfg.speed = 2.0;
+        cfg.cli_speed_override = Some(2.0);
+        let mut s = PointerSession::new(cfg);
+        assert_eq!(s.effective_dpi(), 2000);
+
+        // Watch connects at default 1600 DPI -> CLI 2000 DPI is preserved!
+        let init = encode(&Packet::Sensitivity {
+            header: header(KIND_SENSITIVITY, 1, 0),
+            dpi: 1600,
+        });
+        s.push_packet(&init, 0.0);
+        assert_eq!(s.effective_dpi(), 2000);
+
+        // User steps watch up to 2400 DPI (+50%) -> desktop scales to 3000 DPI!
+        let boosted = encode(&Packet::Sensitivity {
+            header: header(KIND_SENSITIVITY, 2, 10_000),
+            dpi: 2400,
+        });
+        s.push_packet(&boosted, 0.01);
+        assert_eq!(s.effective_dpi(), 3000);
     }
 }

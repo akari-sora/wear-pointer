@@ -3,6 +3,8 @@
 //! Adapted from WatchPointer (Copyright (c) 2026 Umar Afzal, MIT).
 //! `y` grows downward, which matches Wayland and the usual desktop pointer.
 
+use crate::packet::{BASE_DPI, MIN_DPI};
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Screen {
     pub width: f64,
@@ -13,6 +15,20 @@ impl Screen {
     pub fn new(width: f64, height: f64) -> Self {
         Self { width, height }
     }
+}
+
+/// Converts pointer DPI (`1000` DPI == `1.0x` classic ±25° reach; default `1600` DPI == `1.6x`)
+/// into the projection speed multiplier.
+pub fn dpi_to_speed(dpi: u16) -> f64 {
+    f64::from(dpi.max(MIN_DPI / 2)) / f64::from(BASE_DPI)
+}
+
+/// Converts a projection speed multiplier back into integer DPI.
+pub fn speed_to_dpi(speed: f64) -> u16 {
+    if !speed.is_finite() || speed <= 0.0 {
+        return crate::packet::DEFAULT_DPI;
+    }
+    (speed * f64::from(BASE_DPI)).round().clamp(100.0, 6400.0) as u16
 }
 
 /// Degrees of turn from center to the left or right edge at `speed == 1`.

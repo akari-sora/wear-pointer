@@ -1,0 +1,24 @@
+[2026-11-15 10:08:41.846 +0800] === OMARCHY (Hyprland 0.56.2 Wayland) LIVE WATCH7 v0.2.2 VERIFICATION ===
+[2026-11-15 10:08:44.244 +0800] Pre-flight OK: Omarchy UNLOCKED, idle cursor ORIG_CUR=(717, 440), active window=0x5b5db034e060
+[2026-11-15 10:08:48.829 +0800] Shield window active on Omarchy: [404, 220] [500, 360] floating= True
+[2026-11-15 10:08:49.007 +0800] Started wear-pointer-linux v0.2.2 (--backend hyprland --debug); waiting for BLE link up epoch=1...
+[2026-11-15 10:08:52.688 +0800] BLE connected! link up epoch=1 confirmed.
+[2026-11-15 10:08:54.921 +0800] Op 1 [100 Hz Live Aim + 1600 DPI default]: captured watch_01_linked_1600dpi.png; cursor=639, 398
+[2026-11-15 10:08:55.957 +0800] Op 2 [Center tap (240,341)]: cursor BEFORE_CENTER=(639, 397) -> AFTER_CENTER=(640, 398)
+[2026-11-15 10:08:57.243 +0800] Op 3 [Left Click tap (240,186) x2]: completed
+[2026-11-15 10:08:58.747 +0800] Op 4 [Hold-to-Drag 850ms]: captured watch_02_drag_locked.png mid-hold
+[2026-11-15 10:08:59.449 +0800] Op 5 [Right Click tap (110,341)]: completed
+[2026-11-15 10:09:01.191 +0800] Op 6 [Rotary Bezel Scroll +2/+2/-2/-2]: completed
+[2026-11-15 10:09:01.964 +0800] Op 7a [Open Sensitivity/Telemetry overlay (240,55)]
+[2026-11-15 10:09:03.067 +0800] Op 7b [Tap DPI '+' x2: 1600 -> 1800 -> 2000 DPI]
+[2026-11-15 10:09:04.044 +0800] Op 7c [Rotary Bezel clockwise tune DPI in overlay: 2000 -> 2600 DPI]; captured watch_03_sensitivity_tuned.png
+[2026-11-15 10:09:04.576 +0800] Op 7d [Tap DPI '-' (98,111): -> 2400 DPI]
+[2026-11-15 10:09:05.204 +0800] Op 7e [Tap DPI Reset (240,111) -> 1600 DPI]
+[2026-11-15 10:09:06.400 +0800] Op 8 [Privacy Policy (159,425)]: captured watch_06_privacy.png
+[2026-11-15 10:09:07.846 +0800] Closed Privacy & Overlay back to Main Screen
+[2026-11-15 10:09:09.476 +0800] Op 9a [Pause (370,341)]: captured watch_04_paused.png; wakelock=NONE_HELD_WHILE_PAUSED
+[2026-11-15 10:09:10.644 +0800] Op 9b [Resume (370,341)]: wakelock=  PARTIAL_WAKE_LOCK                 'wear-pointer:sensors' ACQ=-946ms (uid=10004 pid=12039 pkg=dev.wearpointer.app displayId=0 lock=633f254)
+[2026-11-15 10:09:12.763 +0800] Op 10a [Stop (240,426)]: captured watch_05_stopped.png; waiting for link down epoch=1...
+[2026-11-15 10:09:12.952 +0800] Op 10b [Start (240,426)]: waiting for auto-reconnect link up epoch=2...
+[2026-11-15 10:09:30.906 +0800] ERROR: Timed out waiting for link up epoch=2
+[2026-11-15 10:09:31.014 +0800] Cleanup: stopping receiver & shield on Omarchy and restoring cursor (717, 440)

@@ -6,13 +6,16 @@
 
 use anyhow::{Context, Result};
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, Instant};
 use wear_pointer_bluetooth::{CentralLink, LinkEvent, PeripheralLink, PointerLink};
-use wear_pointer_core::{CursorAction, PointerSession, Screen, SessionConfig, CURSOR_HZ};
+use wear_pointer_core::{
+    dpi_to_speed, reach_degrees, CursorAction, PointerSession, Screen, SessionConfig, CURSOR_HZ,
+    DEFAULT_DPI,
+};
 use wear_pointer_platform::{LogBackend, PointerBackend};
 
 #[cfg(target_os = "linux")]
@@ -44,6 +47,7 @@ struct Args {
     adapter: Option<String>,
     device: Option<String>,
     trace: Option<String>,
+    replay: Option<String>,
     role: Role,
     backend: BackendKind,
     screen_explicit: bool,
@@ -69,6 +73,7 @@ fn main() -> Result<()> {
     let clock = start;
     let adapter = args.adapter.clone();
     let device = args.device.clone();
+    let replay = args.replay.clone();
     let mut trace = match &args.trace {
         Some(path) => Some(Trace::create(path)?),
         None => None,
@@ -76,6 +81,11 @@ fn main() -> Result<()> {
     let bt_thread = thread::Builder::new()
         .name("wear-pointer-bt".into())
         .spawn(move || -> Result<()> {
+            if let Some(path) = replay {
+                let res = replay_trace_file(&path, tx, clock);
+                bt_stop.store(true, Ordering::Release);
+                return res;
+            }
             let rt = match tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
@@ -115,6 +125,7 @@ fn main() -> Result<()> {
     let mut backend = open_backend(args.backend, args.config.screen, args.screen_explicit)?;
     let mut session = PointerSession::new(args.config);
     session.set_screen(backend.screen());
+    let mut last_logged_dpi = session.effective_dpi();
     let frame = Duration::from_secs_f64(1.0 / f64::from(CURSOR_HZ));
     let mut next = Instant::now();
     let mut link_epoch = 0u64;
@@ -123,7 +134,11 @@ fn main() -> Result<()> {
     } else {
         "No --device filter set (accepts first matching watch)."
     };
-    eprintln!("wear-pointer: cursor loop at {CURSOR_HZ} Hz. Ctrl-C to quit. {pairing_note}");
+    eprintln!(
+        "wear-pointer: cursor loop at {CURSOR_HZ} Hz ({} DPI, reach ±{:.1}°). Ctrl-C to quit. {pairing_note}",
+        last_logged_dpi,
+        reach_degrees(session.effective_speed()),
+    );
     loop {
         let stopping = cursor_stop.load(Ordering::Acquire);
         let screen = backend.screen();
@@ -164,6 +179,18 @@ fn main() -> Result<()> {
                     trace.action(start.elapsed().as_secs_f64(), &action);
                 }
                 apply(&mut *backend, action)?;
+            }
+            let cur_dpi = session.effective_dpi();
+            if cur_dpi != last_logged_dpi {
+                last_logged_dpi = cur_dpi;
+                if let Some(trace) = trace.as_mut() {
+                    trace.dpi(start.elapsed().as_secs_f64(), cur_dpi);
+                }
+                eprintln!(
+                    "wear-pointer: sensitivity -> {cur_dpi} DPI (speed {:.2}x, reach ±{:.1}°)",
+                    session.effective_speed(),
+                    reach_degrees(session.effective_speed()),
+                );
             }
         }
         if stopping {
@@ -212,13 +239,14 @@ fn main() -> Result<()> {
                     _ => String::new(),
                 };
                 eprintln!(
-                    "wear-pointer debug: rx={:.1}/s loss_window={} ({:.1}%) latency_ms avg={:.1} min={:.1} max={:.1} cursor={cursor}{remote}",
+                    "wear-pointer debug: rx={:.1}/s loss_window={} ({:.1}%) latency_ms avg={:.1} min={:.1} max={:.1} dpi={} cursor={cursor}{remote}",
                     debug.rx_hz,
                     debug.lost_window,
                     debug.loss_pct_window,
                     debug.latency_avg_ms,
                     debug.latency_min_ms,
                     debug.latency_max_ms,
+                    debug.effective_dpi,
                 );
             }
         }
@@ -307,6 +335,10 @@ impl Trace {
             CursorAction::Scroll { delta_px } => format!("{t:.6} scroll {delta_px}"),
         };
         let _ = writeln!(self.out, "{line}");
+    }
+
+    fn dpi(&mut self, t: f64, dpi: u16) {
+        let _ = writeln!(self.out, "{t:.6} dpi {dpi}");
     }
 
     fn flush_if_due(&mut self, t: f64) {
@@ -407,6 +439,7 @@ fn parse_args() -> Result<Args> {
     let mut adapter = None;
     let mut device = None;
     let mut trace = None;
+    let mut replay = None;
     let mut role = Role::Central;
     let mut backend = default_backend();
     let mut screen_explicit = false;
@@ -426,6 +459,7 @@ fn parse_args() -> Result<Args> {
                 )
             }
             "--trace" => trace = Some(args.next().context("--trace FILE")?),
+            "--replay" => replay = Some(args.next().context("--replay FILE")?),
             "--role" => {
                 role = match args.next().as_deref() {
                     Some("central") => Role::Central,
@@ -447,7 +481,22 @@ fn parse_args() -> Result<Args> {
                     }
                 };
             }
-            "--speed" => config.speed = number(&mut args, "--speed")?,
+            "--dpi" => {
+                let dpi_val = number(&mut args, "--dpi")?;
+                anyhow::ensure!(
+                    (100.0..=6400.0).contains(&dpi_val),
+                    "--dpi must be between 100 and 6400, got {dpi_val}"
+                );
+                let speed = dpi_to_speed(dpi_val.round() as u16);
+                config.speed = speed;
+                config.cli_speed_override = Some(speed);
+            }
+            "--speed" => {
+                let speed = number(&mut args, "--speed")?;
+                anyhow::ensure!(speed > 0.0 && speed <= 6.4, "--speed must be in (0, 6.4]");
+                config.speed = speed;
+                config.cli_speed_override = Some(speed);
+            }
             "--steady" => config.steady_hz = number(&mut args, "--steady")?,
             "--quick" => config.quickness = number(&mut args, "--quick")?,
             "--dead-zone" => config.dead_zone_deg = number(&mut args, "--dead-zone")?,
@@ -460,6 +509,12 @@ fn parse_args() -> Result<Args> {
             other => {
                 if let Ok(speed) = other.parse::<f64>() {
                     config.speed = speed;
+                    config.cli_speed_override = Some(speed);
+                } else if let Some(value) = other.strip_prefix("dpi=") {
+                    let dpi: u16 = value.parse().context("dpi=")?;
+                    let speed = dpi_to_speed(dpi);
+                    config.speed = speed;
+                    config.cli_speed_override = Some(speed);
                 } else if let Some(value) = other.strip_prefix("steady=") {
                     config.steady_hz = value.parse().context("steady=")?;
                 } else if let Some(value) = other.strip_prefix("quick=") {
@@ -475,11 +530,108 @@ fn parse_args() -> Result<Args> {
         adapter,
         device,
         trace,
+        replay,
         role,
         backend,
         screen_explicit,
         config,
     })
+}
+
+fn decode_hex(hex: &str) -> Result<Vec<u8>> {
+    if hex.len() % 2 != 0 {
+        anyhow::bail!("odd hex length {}", hex.len());
+    }
+    let mut out = Vec::with_capacity(hex.len() / 2);
+    let bytes = hex.as_bytes();
+    for i in (0..bytes.len()).step_by(2) {
+        let s = std::str::from_utf8(&bytes[i..i + 2]).context("invalid utf8 hex")?;
+        out.push(u8::from_str_radix(s, 16).with_context(|| format!("invalid hex byte {s:?}"))?);
+    }
+    Ok(out)
+}
+
+fn parse_trace_link_event(line: &str) -> Result<Option<(f64, LinkEvent)>> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return Ok(None);
+    }
+    let mut parts = trimmed.splitn(4, ' ');
+    let Some(ts_str) = parts.next() else {
+        return Ok(None);
+    };
+    let Some(kind) = parts.next() else {
+        return Ok(None);
+    };
+    let ts: f64 = ts_str
+        .parse()
+        .with_context(|| format!("invalid trace timestamp {ts_str:?}"))?;
+    match kind {
+        "connected" => {
+            let epoch: u64 = parts
+                .next()
+                .context("connected missing epoch")?
+                .parse()
+                .context("invalid epoch")?;
+            let device = parts.next().unwrap_or("watch").to_string();
+            Ok(Some((ts, LinkEvent::Connected { epoch, device })))
+        }
+        "disconnected" => {
+            let epoch: u64 = parts
+                .next()
+                .context("disconnected missing epoch")?
+                .parse()
+                .context("invalid epoch")?;
+            let reason = parts.next().unwrap_or("disconnected").to_string();
+            Ok(Some((ts, LinkEvent::Disconnected { epoch, reason })))
+        }
+        "rx" => {
+            let epoch: u64 = parts
+                .next()
+                .context("rx missing epoch")?
+                .parse()
+                .context("invalid epoch")?;
+            let hex = parts.next().context("rx missing hex payload")?;
+            let bytes = decode_hex(hex.trim())?;
+            Ok(Some((
+                ts,
+                LinkEvent::Packet {
+                    epoch,
+                    received_at_s: ts,
+                    bytes,
+                },
+            )))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn replay_trace_file(path: &str, tx: mpsc::Sender<LinkEvent>, start: Instant) -> Result<()> {
+    let file = File::open(path).with_context(|| format!("--replay {path}"))?;
+    let reader = BufReader::new(file);
+    let mut base_ts: Option<f64> = None;
+    eprintln!("wear-pointer: replaying trace {path}");
+    for line in reader.lines() {
+        let line = line?;
+        let Some((ts, mut event)) = parse_trace_link_event(&line)? else {
+            continue;
+        };
+        let origin = *base_ts.get_or_insert(ts);
+        let rel = (ts - origin).max(0.0);
+        let target = Duration::from_secs_f64(rel);
+        let elapsed = start.elapsed();
+        if target > elapsed {
+            thread::sleep(target - elapsed);
+        }
+        if let LinkEvent::Packet { received_at_s, .. } = &mut event {
+            *received_at_s = start.elapsed().as_secs_f64();
+        }
+        if tx.send(event).is_err() {
+            break;
+        }
+    }
+    thread::sleep(Duration::from_millis(80));
+    Ok(())
 }
 
 fn number(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<f64> {
@@ -502,8 +654,8 @@ fn print_help() {
 wear-pointer — desktop receiver
 
   wear-pointer [--debug] [--role central|peripheral] [--backend hyprland|macos|windows|log|uinput]
-               [--speed 1.0] [--steady 0.8] [--quick 0.01] [--dead-zone 0.0]
-               [--screen 1920x1080] [--adapter hci1] [--device MATCH] [--trace FILE]
+               [--dpi {DEFAULT_DPI}] [--speed 1.6] [--steady 0.8] [--quick 0.01] [--dead-zone 0.0]
+               [--screen 1920x1080] [--adapter hci1] [--device MATCH] [--trace FILE] [--replay FILE]
 
 Stage 0 (no cursor movement):
   cargo run -p wear-pointer -- --debug --backend log
@@ -511,12 +663,44 @@ Stage 0 (no cursor movement):
 Stage 1 on Hyprland (default on Linux when WAYLAND_DISPLAY is set), macOS, or Windows:
   cargo run -p wear-pointer --release -- --debug
 
---speed is WatchPointer's sensitivity: higher reaches the screen edge with less turn.
+--dpi sets pointer sensitivity in DPI (default: {DEFAULT_DPI} DPI = ±15.6° reach; 1000 DPI = ±25°).
+      Also adjustable live from the watch UI (400..3200 DPI).
+--speed is WatchPointer's multiplier alias (speed = dpi / 1000).
 --dead-zone is degrees of aim to ignore. Leave it at 0 unless a log shows jitter.
 --role peripheral is the documented fallback and is not implemented on the desktop yet.
 --adapter picks a Bluetooth adapter by name (default: the first one).
 --device restricts connections to a peripheral whose ID, BD_ADDR, or local name matches MATCH.
 --trace writes every link event, packet, and cursor action to FILE (tools/harness reads it).
+--replay replays link events and raw BLE packets from a --trace FILE through the selected backend.
 "
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_trace_connected_rx_and_ignores_actions() {
+        assert!(parse_trace_link_event("# start_unix 1794705977.698").unwrap().is_none());
+        assert!(parse_trace_link_event("4.2 move 960.0 540.0").unwrap().is_none());
+
+        let (t, ev) = parse_trace_link_event("1.25 connected 1 SM-L310 (hci0)")
+            .unwrap()
+            .unwrap();
+        assert!((t - 1.25).abs() < 1e-9);
+        assert!(matches!(ev, LinkEvent::Connected { epoch: 1, .. }));
+
+        let (t2, ev2) = parse_trace_link_event("2.50 rx 1 01030500aabbccdd")
+            .unwrap()
+            .unwrap();
+        assert!((t2 - 2.50).abs() < 1e-9);
+        match ev2 {
+            LinkEvent::Packet { epoch, bytes, .. } => {
+                assert_eq!(epoch, 1);
+                assert_eq!(bytes, vec![0x01, 0x03, 0x05, 0x00, 0xaa, 0xbb, 0xcc, 0xdd]);
+            }
+            _ => panic!("expected packet"),
+        }
+    }
 }

@@ -78,6 +78,7 @@ class PointerService : Service() {
             .setContentIntent(open)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stop)
         // Adds the Ongoing Activity data to the builder; the notification must be built after this.
         OngoingActivity.Builder(applicationContext, NOTIFICATION_ID, builder)

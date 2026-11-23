@@ -54,11 +54,13 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -77,7 +79,9 @@ import androidx.wear.compose.foundation.lazy.ScalingLazyListScope
 import androidx.wear.compose.foundation.lazy.ScalingLazyListState
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material.MaterialTheme
+import androidx.wear.compose.foundation.rememberSwipeToDismissBoxState
 import androidx.wear.compose.material.PositionIndicator
+import androidx.wear.compose.material.SwipeToDismissBox
 import androidx.wear.compose.material.Text
 import dev.wearpointer.PointerRuntime
 import dev.wearpointer.proto.Packets
@@ -114,6 +118,7 @@ fun RemoteScreen(
     onStepDpi: (Int) -> Unit,
     onStop: () -> Unit,
     onStart: () -> Unit,
+    onExit: () -> Unit,
 ) {
     val ui by PointerRuntime.state.collectAsState()
     val focus = remember { FocusRequester() }
@@ -176,145 +181,271 @@ fun RemoteScreen(
                 .focusRequester(focus)
                 .focusable(),
         ) {
-            when {
-                showTelemetry && showPrivacy -> PrivacyScreen(
-                    listState = privacyList,
-                    onBack = { showPrivacy = false },
-                )
-                showTelemetry -> SettingsScreen(
-                    ui = ui,
-                    listState = settingsList,
-                    onShowPrivacy = {
-                        scope.launch { privacyList.scrollToItem(0) }
-                        showPrivacy = true
-                    },
-                    onRole = onRole,
-                    onPairPc = onPairPc,
-                    onDpi = onDpi,
-                    onStepDpi = onStepDpi,
-                    onDismiss = { showTelemetry = false },
-                )
-                !ui.bluetoothGranted -> NoticeScreen(
-                    listState = noticeList,
-                    badgeColor = AccentAmber,
-                    title = "Bluetooth Needed",
-                    subtitle = if (permissionsBlocked) {
-                        "Bluetooth was denied. Turn on Nearby devices in app permissions."
-                    } else {
-                        "Allow advertising and GATT link to pair with desktop receiver."
-                    },
-                    buttonLabel = if (permissionsBlocked) "Open Settings" else "Allow Bluetooth",
-                    onAction = onRequestPermissions,
-                )
-                ui.peripheralUnsupported -> NoticeScreen(
-                    listState = noticeList,
-                    badgeColor = AccentRose,
-                    title = "Peripheral Blocked",
-                    subtitle = "This watch cannot advertise BLE. Switch to built-in BT HID mouse.",
-                    buttonLabel = "Use BT HID",
-                    onAction = { onRole(PointerRuntime.Role.STANDARD_HID) },
-                )
-                else -> {
-                    PerimeterInstrumentDial(sightColor = sightColor)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(top = MainTopInset, bottom = 12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        StatusCapsule(
-                            ui = ui,
-                            sightColor = sightColor,
-                            onClick = {
-                                scope.launch { settingsList.scrollToItem(0) }
-                                showTelemetry = true
+            // Base level: the instrument, or a permission notice in its place.
+            val base: @Composable () -> Unit = {
+                when {
+                    !ui.bluetoothGranted -> ExitSwipe(key = "notice-bluetooth", onExit = onExit) {
+                        NoticeScreen(
+                            listState = noticeList,
+                            badgeColor = AccentAmber,
+                            title = "Bluetooth Needed",
+                            subtitle = if (permissionsBlocked) {
+                                "Bluetooth was denied. Turn on Nearby devices in app permissions."
+                            } else {
+                                "Allow advertising and GATT link to pair with desktop receiver."
                             },
+                            buttonLabel = if (permissionsBlocked) "Open Settings" else "Allow Bluetooth",
+                            onAction = onRequestPermissions,
                         )
-                        Spacer(Modifier.height(5.dp))
-                        ClickPad(
-                            ui = ui,
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .padding(horizontal = 22.dp),
+                    }
+                    ui.peripheralUnsupported -> ExitSwipe(key = "notice-peripheral", onExit = onExit) {
+                        NoticeScreen(
+                            listState = noticeList,
+                            badgeColor = AccentRose,
+                            title = "Peripheral Blocked",
+                            subtitle = "This watch cannot advertise BLE. Switch to built-in BT HID mouse.",
+                            buttonLabel = "Use BT HID",
+                            onAction = { onRole(PointerRuntime.Role.STANDARD_HID) },
                         )
-                        Spacer(Modifier.height(5.dp))
-                        Row(
+                    }
+                    // No swipe-to-dismiss here: touchpad mode reads horizontal slides.
+                    else -> MainInstrument(
+                        ui = ui,
+                        sightColor = sightColor,
+                        onOpenSettings = {
+                            scope.launch { settingsList.scrollToItem(0) }
+                            showTelemetry = true
+                        },
+                        onStop = onStop,
+                        onStart = onStart,
+                    )
+                }
+            }
+            if (!showTelemetry) {
+                base()
+            } else {
+                // Swipe right goes back one level: Privacy to Settings, Settings to the instrument.
+                SwipeToDismissBox(
+                    onDismissed = {
+                        showPrivacy = false
+                        showTelemetry = false
+                    },
+                    state = rememberSwipeToDismissBoxState(),
+                    backgroundKey = "instrument",
+                    contentKey = "settings",
+                ) { isBackground ->
+                    if (isBackground) {
+                        // Shown while Settings slides away: a picture of the instrument.
+                        // It takes no touches (a second finger must not click the
+                        // desktop) and TalkBack does not read it.
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 24.dp)
-                                .height(44.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                .fillMaxSize()
+                                .clearAndSetSemantics {},
                         ) {
-                            DockButton(
-                                label = "Right",
-                                description = "Right click",
-                                shape = RoundedCornerShape(
-                                    topStart = 22.dp,
-                                    bottomStart = 22.dp,
-                                    topEnd = 12.dp,
-                                    bottomEnd = 12.dp,
-                                ),
-                                surface = SurfaceIdle,
-                                border = BorderSubtle,
-                                contentColor = if (isStopped) TextMuted else TextPrimary,
-                                modifier = Modifier.weight(1f),
-                                icon = { drawRightClickGlyph(it) },
-                                onClick = {
-                                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                                    PointerRuntime.rightClick()
-                                },
-                            )
-                            DockButton(
-                                label = "Center",
-                                description = "Center cursor",
-                                shape = RoundedCornerShape(12.dp),
-                                surface = SurfaceElevated,
-                                border = if (hasGapNotice) AccentAmber else BorderStrong,
-                                contentColor = if (hasGapNotice) AccentAmber else TextPrimary,
-                                modifier = Modifier.weight(1f),
-                                icon = { drawCrosshairGlyph(it) },
-                                onClick = {
-                                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                                    PointerRuntime.center()
-                                },
-                            )
-                            DockButton(
-                                label = if (ui.paused) "Resume" else "Pause",
-                                description = if (ui.paused) "Resume pointer" else "Pause pointer",
-                                shape = RoundedCornerShape(
-                                    topStart = 12.dp,
-                                    bottomStart = 12.dp,
-                                    topEnd = 22.dp,
-                                    bottomEnd = 22.dp,
-                                ),
-                                surface = if (ui.paused) SurfacePaused else SurfaceIdle,
-                                border = if (ui.paused) AccentAmber else BorderSubtle,
-                                contentColor = if (ui.paused) AccentAmber else TextPrimary,
-                                modifier = Modifier.weight(1f),
-                                icon = { color ->
-                                    if (ui.paused) drawPlayGlyph(color) else drawPauseGlyph(color)
-                                },
-                                onClick = {
-                                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                                    PointerRuntime.togglePause()
-                                },
+                            base()
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .pointerInput(Unit) {
+                                        awaitPointerEventScope {
+                                            while (true) {
+                                                awaitPointerEvent(PointerEventPass.Initial)
+                                                    .changes
+                                                    .forEach { it.consume() }
+                                            }
+                                        }
+                                    },
                             )
                         }
-                        Spacer(Modifier.height(5.dp))
-                        PowerCapsule(
-                            stopped = isStopped,
-                            onStop = onStop,
-                            onStart = onStart,
-                        )
+                    } else {
+                        SwipeToDismissBox(
+                            onDismissed = { showPrivacy = false },
+                            state = rememberSwipeToDismissBoxState(),
+                            backgroundKey = "settings-below-privacy",
+                            contentKey = if (showPrivacy) "privacy" else "settings",
+                            // Off on Settings itself, so the outer box takes that swipe.
+                            hasBackground = showPrivacy,
+                        ) { isSettingsBehind ->
+                            if (showPrivacy && !isSettingsBehind) {
+                                PrivacyScreen(
+                                    listState = privacyList,
+                                    onBack = { showPrivacy = false },
+                                )
+                            } else {
+                                SettingsScreen(
+                                    ui = ui,
+                                    listState = settingsList,
+                                    onShowPrivacy = {
+                                        scope.launch { privacyList.scrollToItem(0) }
+                                        showPrivacy = true
+                                    },
+                                    onRole = onRole,
+                                    onPairPc = onPairPc,
+                                    onDpi = onDpi,
+                                    onStepDpi = onStepDpi,
+                                    onDismiss = { showTelemetry = false },
+                                    onExit = onExit,
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    LaunchedEffect(ui.connected, showTelemetry, showPrivacy, showNotice) {
+    // Each page change re-focuses the root, which owns the bezel. A page's
+    // SwipeToDismissBox can clear focus as it comes in, so the notice kind is a key too.
+    LaunchedEffect(ui.connected, showTelemetry, showPrivacy, ui.bluetoothGranted, ui.peripheralUnsupported) {
         focus.requestFocus()
+    }
+}
+
+/**
+ * The pointer instrument: status capsule, click pad, dock and Start/Stop.
+ * Text is 12sp or larger; each piece shows the longest wording that fits its
+ * round-safe space, and a label that does not fit is left out, not cut.
+ */
+@Composable
+private fun MainInstrument(
+    ui: PointerRuntime.UiState,
+    sightColor: Color,
+    onOpenSettings: () -> Unit,
+    onStop: () -> Unit,
+    onStart: () -> Unit,
+) {
+    val view = LocalView.current
+    val isStopped = ui.status == "Stopped"
+    val hasGapNotice = ui.status.startsWith("Sensor gap")
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(PitchBlack),
+    ) {
+        PerimeterInstrumentDial(sightColor = sightColor)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = MainTopInset, bottom = MainBottomInset),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            StatusCapsule(
+                ui = ui,
+                sightColor = sightColor,
+                onClick = onOpenSettings,
+            )
+            Spacer(Modifier.height(MainGap))
+            ClickPad(
+                ui = ui,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 22.dp),
+            )
+            Spacer(Modifier.height(MainGap))
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .height(DockHeight),
+            ) {
+                // One decision for the whole dock, so the three buttons always match:
+                // words when every label (Pause and Resume included) fits, else glyphs.
+                val buttonWidth = (maxWidth - DockSpacing * 2) / 3
+                val measurer = rememberTextMeasurer()
+                val density = LocalDensity.current
+                val showLabels = remember(buttonWidth, density) {
+                    val roomPx = with(density) { (buttonWidth - 8.dp).toPx() }
+                    DockLabels.all { measurer.measure(it, DockLabelStyle, maxLines = 1).size.width <= roomPx }
+                }
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(DockSpacing),
+                ) {
+                    DockButton(
+                        label = "Right",
+                        showLabel = showLabels,
+                        description = "Right click",
+                        shape = RoundedCornerShape(
+                            topStart = 22.dp,
+                            bottomStart = 22.dp,
+                            topEnd = 12.dp,
+                            bottomEnd = 12.dp,
+                        ),
+                        surface = SurfaceIdle,
+                        border = BorderSubtle,
+                        contentColor = if (isStopped) TextMuted else TextPrimary,
+                        modifier = Modifier.weight(1f),
+                        icon = { drawRightClickGlyph(it) },
+                        onClick = {
+                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            PointerRuntime.rightClick()
+                        },
+                    )
+                    DockButton(
+                        label = "Center",
+                        showLabel = showLabels,
+                        description = "Center cursor",
+                        shape = RoundedCornerShape(12.dp),
+                        surface = SurfaceElevated,
+                        border = if (hasGapNotice) AccentAmber else BorderStrong,
+                        contentColor = if (hasGapNotice) AccentAmber else TextPrimary,
+                        modifier = Modifier.weight(1f),
+                        icon = { drawCrosshairGlyph(it) },
+                        onClick = {
+                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                            PointerRuntime.center()
+                        },
+                    )
+                    DockButton(
+                        label = if (ui.paused) "Resume" else "Pause",
+                        showLabel = showLabels,
+                        description = if (ui.paused) "Resume pointer" else "Pause pointer",
+                        shape = RoundedCornerShape(
+                            topStart = 12.dp,
+                            bottomStart = 12.dp,
+                            topEnd = 22.dp,
+                            bottomEnd = 22.dp,
+                        ),
+                        surface = if (ui.paused) SurfacePaused else SurfaceIdle,
+                        border = if (ui.paused) AccentAmber else BorderSubtle,
+                        contentColor = if (ui.paused) AccentAmber else TextPrimary,
+                        modifier = Modifier.weight(1f),
+                        icon = { color ->
+                            if (ui.paused) drawPlayGlyph(color) else drawPauseGlyph(color)
+                        },
+                        onClick = {
+                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            PointerRuntime.togglePause()
+                        },
+                    )
+                }
+            }
+            Spacer(Modifier.height(MainGap))
+            PowerCapsule(
+                stopped = isStopped,
+                onStop = onStop,
+                onStart = onStart,
+            )
+        }
+    }
+}
+
+/** A permission notice: a swipe right leaves the app, as on any Wear OS app. */
+@Composable
+private fun ExitSwipe(key: String, onExit: () -> Unit, content: @Composable () -> Unit) {
+    SwipeToDismissBox(
+        onDismissed = onExit,
+        state = rememberSwipeToDismissBoxState(),
+        backgroundKey = "$key-exit",
+        contentKey = key,
+    ) { isBackground ->
+        if (isBackground) {
+            Box(Modifier.fillMaxSize().background(PitchBlack))
+        } else {
+            content()
+        }
     }
 }
 
@@ -359,7 +490,55 @@ private fun PerimeterInstrumentDial(sightColor: Color) {
 
 /** Top inset of the main column; the status capsule starts here. */
 private val MainTopInset = 15.dp
-private val StatusCapsuleHeight = 22.dp
+/** Bottom inset of the main column; keeps the Start/Stop pill inside the round edge. */
+private val MainBottomInset = 12.dp
+/** Vertical gap between the capsule, pad, dock and Start/Stop. */
+private val MainGap = 3.dp
+private val StatusCapsuleHeight = 24.dp
+private val DockHeight = 44.dp
+private val DockSpacing = 6.dp
+
+/*
+ * Main-screen text follows the Wear OS quality guideline: 12sp or larger. Each
+ * style sets its line height, so a measured line is the line that is drawn.
+ */
+private val StatusTextStyle = TextStyle(
+    fontSize = 12.sp,
+    lineHeight = 14.sp,
+    letterSpacing = 0.sp,
+    fontWeight = FontWeight.SemiBold,
+    fontFamily = FontFamily.Monospace,
+)
+private val PadTitleStyle = TextStyle(
+    fontSize = 12.sp,
+    lineHeight = 14.sp,
+    fontWeight = FontWeight.Bold,
+    letterSpacing = 0.8.sp,
+    textAlign = TextAlign.Center,
+)
+private val PadHintStyle = TextStyle(
+    fontSize = 12.sp,
+    lineHeight = 14.sp,
+    letterSpacing = 0.sp,
+    textAlign = TextAlign.Center,
+)
+private val DockLabelStyle = TextStyle(
+    fontSize = 12.sp,
+    lineHeight = 14.sp,
+    letterSpacing = 0.sp,
+    fontWeight = FontWeight.Medium,
+    textAlign = TextAlign.Center,
+)
+private val PowerLabelStyle = TextStyle(
+    fontSize = 12.sp,
+    lineHeight = 14.sp,
+    letterSpacing = 0.sp,
+    fontWeight = FontWeight.SemiBold,
+)
+/** Height the pad's reticle needs above its text before the hint line is shown. */
+private val PadMinReticleZone = 23.dp
+/** Every word a dock button can show; the dock shows words only when all of them fit. */
+private val DockLabels = listOf("Right", "Center", "Pause", "Resume")
 /** Gap kept between any control and the edge of a round display. */
 private val RoundEdgeMargin = 4.dp
 
@@ -385,7 +564,7 @@ private fun statusLabels(ui: PointerRuntime.UiState): List<String> {
     val dpi = ui.dpi
     return when {
         ui.status == "Stopped" -> listOf("STOPPED")
-        ui.status.startsWith("Sensor gap") -> listOf("RECENTERED")
+        ui.status.startsWith("Sensor gap") -> listOf("RECENTERED", "CENTERED")
         ui.paused -> listOf("PAUSED · AWAKE", "PAUSED")
         ui.connected -> when (ui.mode) {
             PointerRuntime.Mode.ABSOLUTE -> {
@@ -401,7 +580,7 @@ private fun statusLabels(ui: PointerRuntime.UiState): List<String> {
         ui.status == "Waiting for link" -> listOf("STANDBY")
         ui.role == PointerRuntime.Role.STANDARD_HID -> {
             if (ui.status.contains("Connecting", ignoreCase = true)) {
-                listOf("HID · CONNECTING", "CONNECTING", "HID")
+                listOf("HID · CONNECTING", "CONNECTING", "LINKING", "HID")
             } else {
                 listOf("BT HID · $dpi DPI", "BT HID · $dpi", "BT HID")
             }
@@ -424,14 +603,10 @@ private fun StatusCapsule(
     val screen = LocalConfiguration.current
     val diameter = minOf(screen.screenWidthDp, screen.screenHeightDp).dp
     val maxWidth = pillMaxWidth(diameter, MainTopInset, StatusCapsuleHeight)
-    val padding = 10.dp
+    val padding = 9.dp
     val dot = 6.dp
     val gap = 5.dp
-    val style = TextStyle(
-        fontSize = 9.5.sp,
-        fontWeight = FontWeight.SemiBold,
-        fontFamily = FontFamily.Monospace,
-    )
+    val style = StatusTextStyle
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val labels = statusLabels(ui)
@@ -603,103 +778,123 @@ private fun ClickPad(ui: PointerRuntime.UiState, modifier: Modifier) {
                 }
             },
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val cx = size.width / 2f
-            val cy = size.height * 0.37f
-            val reachR = (size.minDimension * 0.22f).coerceAtMost(20.5.dp.toPx())
-
-            // Reach ring (±25° desktop edge) and crosshair ticks.
-            drawCircle(
-                color = BorderSubtle,
-                radius = reachR,
-                center = Offset(cx, cy),
-                style = Stroke(width = 1.dp.toPx()),
-            )
-            val tickGap = 4.5.dp.toPx()
-            val tickExt = 3.dp.toPx()
-            drawLine(BorderSubtle, Offset(cx - reachR - tickExt, cy), Offset(cx - tickGap, cy), 1.dp.toPx())
-            drawLine(BorderSubtle, Offset(cx + tickGap, cy), Offset(cx + reachR + tickExt, cy), 1.dp.toPx())
-            drawLine(BorderSubtle, Offset(cx, cy - reachR - tickExt), Offset(cx, cy - tickGap), 1.dp.toPx())
-            drawLine(BorderSubtle, Offset(cx, cy + tickGap), Offset(cx, cy + reachR + tickExt), 1.dp.toPx())
-
-            // Hold-to-drag radial progress / active drag lock ring.
-            val sweep = when {
-                dragging -> 360f
-                pressing -> holdProgress.value * 360f
-                else -> 0f
-            }
-            if (sweep > 1f) {
-                val arcR = reachR + 3.2.dp.toPx()
-                drawArc(
-                    color = AccentEmerald,
-                    startAngle = -90f,
-                    sweepAngle = sweep,
-                    useCenter = false,
-                    topLeft = Offset(cx - arcR, cy - arcR),
-                    size = Size(arcR * 2f, arcR * 2f),
-                    style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
-                )
-            }
-
-            if (touchMode) return@Canvas
-            // Live spatial aim puck: mirrors desktop cursor direction at active DPI reach.
-            val reachDeg = (25f * Packets.BASE_DPI / ui.dpi.coerceAtLeast(Packets.MIN_DPI))
-                .coerceIn(6f, 65f)
-            val leftDeg = ui.aimLeftCdeg / 100f
-            val upDeg = ui.aimUpCdeg / 100f
-            val normX = (-leftDeg / reachDeg).coerceIn(-1f, 1f)
-            val normY = (-upDeg / reachDeg).coerceIn(-1f, 1f)
-            val mag = kotlin.math.hypot(normX, normY).coerceAtLeast(1f)
-            val dotCenter = Offset(
-                x = cx + (normX / mag) * reachR,
-                y = cy + (normY / mag) * reachR,
-            )
-            drawCircle(
-                color = reticleColor.copy(alpha = 0.24f),
-                radius = 6.dp.toPx(),
-                center = dotCenter,
-            )
-            drawCircle(
-                color = reticleColor,
-                radius = 3.2.dp.toPx(),
-                center = dotCenter,
-            )
-        }
-
-        val subStyle = TextStyle(
-            fontSize = if (isIdleHint) 7.5.sp else 8.sp,
-            fontFamily = if (isIdleHint) FontFamily.Default else FontFamily.Monospace,
-        )
+        val hintStyle = if (isIdleHint) PadHintStyle else PadHintStyle.copy(fontFamily = FontFamily.Monospace)
         val measurer = rememberTextMeasurer()
+        val density = LocalDensity.current
         BoxWithConstraints(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(start = 8.dp, end = 8.dp, bottom = 6.dp),
-            contentAlignment = Alignment.BottomCenter,
+                .fillMaxSize()
+                .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 5.dp),
         ) {
             val roomPx = constraints.maxWidth
-            val subLabel = remember(subLabels, subStyle, roomPx) {
-                subLabels.firstOrNull { measurer.measure(it, subStyle, maxLines = 1).size.width <= roomPx }
-                    ?: subLabels.last()
+            val heightPx = constraints.maxHeight
+            // The hint is the longest wording that fits on one line, and it is shown only
+            // while the reticle above the text keeps a readable size; on a small watch
+            // with a large font the pad shows the reticle and the title alone.
+            val subLabel = remember(subLabels, primaryLabel, hintStyle, roomPx, heightPx, density) {
+                val fitting = subLabels.firstOrNull {
+                    measurer.measure(it, hintStyle, maxLines = 1).size.width <= roomPx
+                }
+                if (fitting == null) {
+                    null
+                } else {
+                    val textPx = measurer.measure(primaryLabel, PadTitleStyle, maxLines = 1).size.height +
+                        measurer.measure(fitting, hintStyle, maxLines = 1).size.height
+                    val reticlePx = heightPx - textPx
+                    if (reticlePx >= with(density) { PadMinReticleZone.toPx() }) fitting else null
+                }
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                // The reticle takes the space above the text, so the two never overlap.
+                Canvas(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                ) {
+                    val cx = size.width / 2f
+                    val cy = size.height / 2f
+                    val reachR = minOf(
+                        20.5.dp.toPx(),
+                        size.height / 2f - 4.dp.toPx(),
+                        size.width * 0.22f,
+                    ).coerceAtLeast(4.dp.toPx())
+
+                    // Reach ring (±25° desktop edge) and crosshair ticks.
+                    drawCircle(
+                        color = BorderSubtle,
+                        radius = reachR,
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 1.dp.toPx()),
+                    )
+                    val tickGap = 4.5.dp.toPx()
+                    val tickExt = 3.dp.toPx()
+                    drawLine(BorderSubtle, Offset(cx - reachR - tickExt, cy), Offset(cx - tickGap, cy), 1.dp.toPx())
+                    drawLine(BorderSubtle, Offset(cx + tickGap, cy), Offset(cx + reachR + tickExt, cy), 1.dp.toPx())
+                    drawLine(BorderSubtle, Offset(cx, cy - reachR - tickExt), Offset(cx, cy - tickGap), 1.dp.toPx())
+                    drawLine(BorderSubtle, Offset(cx, cy + tickGap), Offset(cx, cy + reachR + tickExt), 1.dp.toPx())
+
+                    // Hold-to-drag radial progress / active drag lock ring.
+                    val sweep = when {
+                        dragging -> 360f
+                        pressing -> holdProgress.value * 360f
+                        else -> 0f
+                    }
+                    if (sweep > 1f) {
+                        val arcR = reachR + 3.2.dp.toPx()
+                        drawArc(
+                            color = AccentEmerald,
+                            startAngle = -90f,
+                            sweepAngle = sweep,
+                            useCenter = false,
+                            topLeft = Offset(cx - arcR, cy - arcR),
+                            size = Size(arcR * 2f, arcR * 2f),
+                            style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
+                        )
+                    }
+
+                    if (touchMode) return@Canvas
+                    // Live spatial aim puck: mirrors desktop cursor direction at active DPI reach.
+                    val reachDeg = (25f * Packets.BASE_DPI / ui.dpi.coerceAtLeast(Packets.MIN_DPI))
+                        .coerceIn(6f, 65f)
+                    val leftDeg = ui.aimLeftCdeg / 100f
+                    val upDeg = ui.aimUpCdeg / 100f
+                    val normX = (-leftDeg / reachDeg).coerceIn(-1f, 1f)
+                    val normY = (-upDeg / reachDeg).coerceIn(-1f, 1f)
+                    val mag = kotlin.math.hypot(normX, normY).coerceAtLeast(1f)
+                    val dotCenter = Offset(
+                        x = cx + (normX / mag) * reachR,
+                        y = cy + (normY / mag) * reachR,
+                    )
+                    drawCircle(
+                        color = reticleColor.copy(alpha = 0.24f),
+                        radius = 6.dp.toPx(),
+                        center = dotCenter,
+                    )
+                    drawCircle(
+                        color = reticleColor,
+                        radius = 3.2.dp.toPx(),
+                        center = dotCenter,
+                    )
+                }
                 Text(
                     text = primaryLabel,
                     color = if (dragging) AccentEmerald else if (ui.paused) AccentAmber else TextPrimary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.8.sp,
-                    maxLines = 1,
-                )
-                Text(
-                    text = subLabel,
-                    color = TextSecondary,
-                    style = subStyle,
-                    textAlign = TextAlign.Center,
+                    style = PadTitleStyle,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (subLabel != null) {
+                    Text(
+                        text = subLabel,
+                        color = TextSecondary,
+                        style = hintStyle,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
@@ -786,6 +981,7 @@ private const val TOUCH_SLOP_DP = 8f
 @Composable
 private fun DockButton(
     label: String,
+    showLabel: Boolean,
     description: String,
     shape: RoundedCornerShape,
     surface: Color,
@@ -795,11 +991,9 @@ private fun DockButton(
     icon: DrawScope.(Color) -> Unit,
     onClick: () -> Unit,
 ) {
-    val style = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Medium)
-    val measurer = rememberTextMeasurer()
-    BoxWithConstraints(
+    Box(
         modifier = modifier
-            .height(44.dp)
+            .height(DockHeight)
             .clip(shape)
             .background(surface)
             .border(1.dp, border, shape)
@@ -807,24 +1001,18 @@ private fun DockButton(
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {
-        // On a small watch or with a large font the word can be wider than the
-        // button. Then the glyph stands alone (TalkBack still reads the
-        // description) instead of the text being cut at the button's edge.
-        val roomPx = constraints.maxWidth - with(LocalDensity.current) { 8.dp.toPx() }
-        val labelFits = remember(label, roomPx) {
-            measurer.measure(label, style, maxLines = 1).size.width <= roomPx
-        }
+        // Without the word (small watch or large font) the glyph stands alone and
+        // larger; TalkBack still reads the description.
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Canvas(modifier = Modifier.size(if (labelFits) 13.dp else 18.dp)) {
+            Canvas(modifier = Modifier.size(if (showLabel) 13.dp else 18.dp)) {
                 icon(contentColor)
             }
-            if (labelFits) {
+            if (showLabel) {
                 Spacer(Modifier.height(2.dp))
                 Text(
                     text = label,
                     color = contentColor,
-                    style = style,
-                    textAlign = TextAlign.Center,
+                    style = DockLabelStyle,
                     maxLines = 1,
                 )
             }
@@ -868,8 +1056,8 @@ private fun PowerCapsule(
         Text(
             text = text,
             color = if (stopped) AccentEmerald else TextSecondary,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.SemiBold,
+            style = PowerLabelStyle,
+            maxLines = 1,
         )
     }
 }
@@ -1039,6 +1227,7 @@ private fun SettingsScreen(
     onDpi: (Int) -> Unit,
     onStepDpi: (Int) -> Unit,
     onDismiss: () -> Unit,
+    onExit: () -> Unit,
 ) {
     val view = LocalView.current
     val leftDeg = "%+d°".format((ui.aimLeftCdeg / 100f).roundToInt())
@@ -1141,6 +1330,16 @@ private fun SettingsScreen(
                 label = "Done",
                 description = "Done",
                 onClick = onDismiss,
+            )
+        }
+        // The instrument screen keeps swipe-to-close off (touchpad mode reads
+        // horizontal slides), so the app offers an explicit way to close it.
+        item {
+            ListRow(
+                label = "Close app",
+                secondary = if (ui.status == "Stopped") null else "Pointer keeps running",
+                description = "Close app",
+                onClick = onExit,
             )
         }
     }

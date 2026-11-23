@@ -74,6 +74,8 @@ class MainActivity : ComponentActivity() {
                 onStepDpi = { PointerRuntime.stepDpi(it) },
                 onStop = { PointerRuntime.stop() },
                 onStart = { startPointer() },
+                // Swipe right on a permission notice leaves the app.
+                onExit = { finish() },
             )
         }
         if (hasBlePermissions()) {

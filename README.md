@@ -29,7 +29,7 @@ Physical hardware measurements across all three desktop OSes (`100.4–102.6 pkt
 ### Path A — No computer software needed (`BT HID` Bluetooth Mouse)
 
 1. Install **Wear Pointer** on your Wear OS watch via [Google Play (optional paid support)](https://play.google.com/store/apps/details?id=dev.wearpointer.app) if available, or download the [free signed Wear OS APK](https://gitlab.com/aa22396584/wear-pointer/-/releases/v0.3.0) (`wear-pointer-v0.3.0-wearos.apk`).
-2. Open the app on your watch, tap the top status pill (`100HZ · 1600 DPI`), tap **`BT HID`**, then tap **`Pair PC`**.
+2. Open the app on your watch, tap the top status pill (`100HZ · 1600 DPI`) to open Settings, scroll to **Link**, choose **`BT HID`**, then tap **`Pair PC`**.
 3. Open **Bluetooth Settings** on your Mac, Windows PC, Linux desktop, iPad, or TV and pair with your watch.
 4. Move your wrist or slide on the pad — `LASER`, `AIR`, `TOUCH`, left/right click, hold-to-drag, rotary bezel scroll, and live DPI (`400–3200 DPI`) all work immediately.
 
@@ -102,7 +102,7 @@ wear-pointer [--tray | --no-tray] [--version] [--debug] [--role central|peripher
 | --- | --- | --- |
 | Rust `cargo test` (`LASER` / `AIR` / `TOUCH` modes, multi-monitor `DesktopLayout` & negative-origin seam/corner clamping, `WatchInfo` & live tray overrides, ergonomic `1600 DPI`, OS cursor handoff, packets, loss, latency, 240 Hz follow, BLE shutdown & CoreBluetooth recovery) | yes, 71 tests on macOS / 71 on Linux | — |
 | Native Menu Bar / System Tray GUI + preserved CLI (`WearPointer.app` + `.dmg`, Windows `WearPointer.exe` GUI + `wear-pointer.exe` CLI, Linux `wear-pointer-app` SNI tray + `install-linux.sh`) | yes, all 3 desktop platforms built & smoke-tested on physical machines (including 3-monitor heterogeneous macOS setup) | — |
-| Wear OS `assembleRelease` / `bundleRelease` (R8 code + resource shrinking, `1.5 MB` APK), Standard Bluetooth HID (`BluetoothHidDevice`), and JVM unit tests | yes, JDK 21, `compileSdk = 35`, `targetSdk = 35`, 43 JVM unit tests (`HidMotionEngineTest` + protocol/motion), `v0.3.0` (`versionCode = 7`) installed on physical `SM-L310` | — |
+| Wear OS `assembleRelease` / `bundleRelease` (R8 code + resource shrinking, `1.5 MB` APK), Standard Bluetooth HID (`BluetoothHidDevice`), and JVM unit tests | yes, JDK 21, `compileSdk = 35`, `targetSdk = 35`, 43 JVM unit tests (`HidMotionEngineTest` + protocol/motion), `v0.3.0` (`versionCode = 7`) installed on physical `SM-L310`; `v0.3.1` (`versionCode = 9`, Wear app quality fixes: round-safe layout at every font size, launch screen, Ongoing Activity) checked on 192dp and 227dp round Wear OS 5 emulators, not yet on the watch | — |
 | Physical Watch7 (`SM-L310`) BLE peripheral, 100 Hz sensor rate, live DPI sync (`400–3200 DPI`), mid-drag drop & reconnect | yes: `~102 pkt/s`, `0.0%` loss across Omarchy BlueZ, Windows 11 WinRT, and macOS CoreBluetooth ([metrics](docs/acceptance-metrics.md), [evidence](docs/evidence/README.md)) | 10-minute stationary yaw drift characterization optional |
 | Hyprland cursor movement | yes, physical `SM-L310` → Omarchy Hyprland 0.56.2 (`zwlr_virtual_pointer_v1`, `hyprctl monitors` / `cursorpos`, multi-monitor + HiDPI + rotation) + QEMU harness | — |
 | macOS `CGEventPost`, Windows `SendInput` | yes, live physical `SM-L310` verified end-to-end on macOS (`WearPointer.app` CoreBluetooth + `CGEventPost`) and Windows 11 (`WinRT` + `SendInput`) ([evidence](docs/evidence/README.md)) | macOS prompts once for Bluetooth & Accessibility on `WearPointer.app` |

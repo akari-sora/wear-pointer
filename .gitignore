@@ -16,3 +16,7 @@ tools/promo/node_modules/
 tools/promo/out/
 tools/store-assets/out/
 .DS_Store
+
+# Agent tooling state
+.omc/
+.omg/

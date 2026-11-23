@@ -16,7 +16,7 @@ Both sides talk in protocol v1 bytes (`protocol/SPEC.md`). The role only changes
 | Pointer characteristic | notify, watch → desktop | write without response, watch → desktop |
 | Control characteristic | write, desktop → watch | notify, presence only |
 
-On the watch, the UI line "Role: watch advertises" switches this. The choice is stored in shared preferences. If advertising fails as unsupported, the screen says so and offers "Use desktop advertiser".
+On the watch, Settings (tap the top status pill) has a **Link** section with `BLE app` (watch advertises), `BT HID` and `Alt` (desktop advertises); choosing one switches this. The choice is stored in shared preferences. If advertising fails as unsupported, the screen says so and offers "Use BT HID".
 
 On the desktop:
 

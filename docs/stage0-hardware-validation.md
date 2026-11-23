@@ -33,7 +33,7 @@ Do the log backend before the Hyprland backend. A bad packet stream should not b
 
 5. Open **wear-pointer** on the watch. Grant Bluetooth (advertise, connect, scan) and notifications.
 6. Leave the app on screen. For the rate test, set the screen timeout as long as it will go. Wrist detection can suspend sensors when the watch is in a hand like a remote; if the rate collapses the moment it leaves the wrist, note that and repeat with it on the wrist.
-7. Read the top status capsule (e.g. `LINKED · 100 HZ` or `ADVERTISING`), and tap it to open the **Telemetry** sheet showing gyroscope samples in the last second, packets the stack accepted, packets dropped, live aim angles, and the BLE role switch. `adb logcat -s wear-pointer` prints the same once a second: `samples=… sent=… drop=…`.
+7. Read the top status capsule (e.g. `LINKED · 100 HZ` or `ADVERTISING`), and tap it to open Settings, then scroll to the **Telemetry** section showing gyroscope samples in the last second, packets the stack accepted, packets dropped, live aim angles, and the BLE role switch. `adb logcat -s wear-pointer` prints the same once a second: `samples=… sent=… drop=…`.
 
 ### BLE peripheral
 

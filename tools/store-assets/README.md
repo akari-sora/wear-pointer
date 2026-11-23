@@ -51,6 +51,12 @@ Everything is in [`config.json`](config.json):
 
 To add a locale, add it to `locales` and add a matching key to every localised field. A field with no entry for the locale falls back to `en-US`.
 
+## Refreshing the watch screens
+
+The files in `screens/` are raw captures of the release build. To refresh them after a UI change, run the app on a round Wear OS emulator (`adb exec-out screencap -p`), or on the watch. The connected states (`100HZ`, `TAP`, drag) need a peer: the `wearos/probe` app on a second emulator, as in [docs/emulator-harness.md](../../docs/emulator-harness.md). Square captures of 454x454 or 480x480 both work.
+
+Google Play also takes Wear OS screenshots (1:1, no device frame, no added text). Use the raw captures for those: `main`, `drag`, `paused`, `sensitivity`, `sheet_mode`, `stopped`. Listing images are uploaded in Play Console; the publishing API refused image changes for this app's service account.
+
 ## Notes
 
 - Text uses the macOS system font (SF Pro) with PingFang TC for Chinese and SF Mono for labels. On Linux, Chrome substitutes other fonts, so line breaks can shift. Check the contact sheet after rendering.

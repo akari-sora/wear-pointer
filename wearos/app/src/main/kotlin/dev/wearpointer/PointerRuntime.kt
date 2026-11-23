@@ -91,6 +91,8 @@ object PointerRuntime : SensorEventListener, LinkListener {
     private var haveGravity = false
     private var started = false
     private var paused = false
+    /** Transport status shown before Pause, restored on Resume while there is no link. */
+    private var statusBeforePause: String? = null
     private var samples = 0
     private var dropped = 0
     private val gapMonitor = SensorGapMonitor(SENSOR_GAP_NS)
@@ -260,17 +262,28 @@ object PointerRuntime : SensorEventListener, LinkListener {
             if (paused) {
                 releaseWakeLock()
                 send(Packets.pause(0, nowUs(), true), reliable = true)
-                _state.update { it.copy(paused = true, status = "Paused — tracks while awake") }
+                val current = _state.value.status
+                if (current != STATUS_PAUSED) statusBeforePause = current
+                _state.update { it.copy(paused = true, status = STATUS_PAUSED) }
                 return@post
             }
             holdWakeLock()
             send(Packets.pause(0, nowUs(), false), reliable = true)
-            if (gapMonitor.onResume()) {
-                rebase(nowUs())
-            } else {
-                _state.update { it.copy(paused = false, status = if (it.connected) "Connected" else it.status) }
+            val before = statusBeforePause
+            _state.update {
+                // Never leave the pause text behind. Without a link, go back to
+                // what the transport last said (Advertising, Scanning, ...).
+                val resumed = when {
+                    it.status != STATUS_PAUSED -> it.status
+                    it.connected -> "Connected"
+                    before != null && before != "Connected" -> before
+                    else -> "Waiting for link"
+                }
+                it.copy(paused = false, status = resumed)
             }
-            _state.update { it.copy(paused = false) }
+            // A hole in the gyro timestamps while paused: rebase, which may
+            // replace the status with the sensor-gap notice.
+            if (gapMonitor.onResume()) rebase(nowUs())
         }
     }
 
@@ -674,4 +687,5 @@ object PointerRuntime : SensorEventListener, LinkListener {
     /** Longer than this between gyro samples means events were dropped while asleep. */
     private const val SENSOR_GAP_NS = 500_000_000L
     private const val TAG = "wear-pointer"
+    private const val STATUS_PAUSED = "Paused — tracks while awake"
 }

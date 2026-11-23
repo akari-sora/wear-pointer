@@ -2,6 +2,7 @@ package dev.wearpointer.ui
 
 import android.os.SystemClock
 import android.view.HapticFeedbackConstants
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -15,15 +16,19 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -32,6 +37,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,23 +56,38 @@ import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.wear.compose.foundation.lazy.AutoCenteringParams
+import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.ScalingLazyColumnDefaults
+import androidx.wear.compose.foundation.lazy.ScalingLazyListScope
+import androidx.wear.compose.foundation.lazy.ScalingLazyListState
+import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material.MaterialTheme
+import androidx.wear.compose.material.PositionIndicator
 import androidx.wear.compose.material.Text
 import dev.wearpointer.PointerRuntime
 import dev.wearpointer.proto.Packets
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.math.sqrt
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 private val PitchBlack = Color(0xFF000000)
@@ -100,6 +121,10 @@ fun RemoteScreen(
     var showTelemetry by remember { mutableStateOf(false) }
     var showPrivacy by remember { mutableStateOf(false) }
     var rotaryDpiAccum by remember { mutableStateOf(0f) }
+    val noticeList = rememberScalingLazyListState()
+    val settingsList = rememberScalingLazyListState()
+    val privacyList = rememberScalingLazyListState()
+    val scope = rememberCoroutineScope()
 
     val isStopped = ui.status == "Stopped"
     val hasGapNotice = ui.status.startsWith("Sensor gap")
@@ -111,6 +136,12 @@ fun RemoteScreen(
         ui.connected -> AccentEmerald
         else -> TextSecondary
     }
+    val showNotice = !ui.bluetoothGranted || ui.peripheralUnsupported
+
+    // The watch's Back key closes Privacy, then Settings, before it leaves the app.
+    BackHandler(enabled = showTelemetry) {
+        if (showPrivacy) showPrivacy = false else showTelemetry = false
+    }
 
     MaterialTheme {
         Box(
@@ -118,65 +149,86 @@ fun RemoteScreen(
                 .fillMaxSize()
                 .background(PitchBlack)
                 // Compose UI's onRotaryScrollEvent receives Wear touch-bezel / crown scroll.
-                // On the Settings/Telemetry overlay it steps DPI; otherwise it scrolls the desktop.
+                // On Settings it steps DPI, on the text screens it scrolls the page,
+                // otherwise it scrolls the desktop.
                 .onRotaryScrollEvent { event ->
-                    if (showTelemetry && !showPrivacy) {
-                        rotaryDpiAccum += event.verticalScrollPixels
-                        val detentPx = 42f
-                        while (rotaryDpiAccum >= detentPx) {
-                            rotaryDpiAccum -= detentPx
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                            onStepDpi(1)
+                    when {
+                        showTelemetry && showPrivacy -> privacyList.dispatchRawDelta(event.verticalScrollPixels)
+                        showTelemetry -> {
+                            rotaryDpiAccum += event.verticalScrollPixels
+                            val detentPx = 42f
+                            while (rotaryDpiAccum >= detentPx) {
+                                rotaryDpiAccum -= detentPx
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                onStepDpi(1)
+                            }
+                            while (rotaryDpiAccum <= -detentPx) {
+                                rotaryDpiAccum += detentPx
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                onStepDpi(-1)
+                            }
                         }
-                        while (rotaryDpiAccum <= -detentPx) {
-                            rotaryDpiAccum += detentPx
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                            onStepDpi(-1)
-                        }
-                    } else {
-                        PointerRuntime.scrollBy(event.verticalScrollPixels)
+                        showNotice -> noticeList.dispatchRawDelta(event.verticalScrollPixels)
+                        else -> PointerRuntime.scrollBy(event.verticalScrollPixels)
                     }
                     true
                 }
                 .focusRequester(focus)
                 .focusable(),
         ) {
-            PerimeterInstrumentDial(sightColor = sightColor)
-
             when {
-                !ui.bluetoothGranted -> {
-                    CenteredNoticeScreen(
-                        badgeColor = AccentAmber,
-                        title = "Bluetooth Needed",
-                        subtitle = if (permissionsBlocked) {
-                            "Bluetooth was denied. Turn on Nearby devices in app permissions."
-                        } else {
-                            "Allow advertising and GATT link to pair with desktop receiver."
-                        },
-                        buttonLabel = if (permissionsBlocked) "Open Settings" else "Allow Bluetooth",
-                        onAction = onRequestPermissions,
-                    )
-                }
-                ui.peripheralUnsupported -> {
-                    CenteredNoticeScreen(
-                        badgeColor = AccentRose,
-                        title = "Peripheral Blocked",
-                        subtitle = "This watch cannot advertise BLE. Switch to built-in BT HID mouse.",
-                        buttonLabel = "Use BT HID",
-                        onAction = { onRole(PointerRuntime.Role.STANDARD_HID) },
-                    )
-                }
+                showTelemetry && showPrivacy -> PrivacyScreen(
+                    listState = privacyList,
+                    onBack = { showPrivacy = false },
+                )
+                showTelemetry -> SettingsScreen(
+                    ui = ui,
+                    listState = settingsList,
+                    onShowPrivacy = {
+                        scope.launch { privacyList.scrollToItem(0) }
+                        showPrivacy = true
+                    },
+                    onRole = onRole,
+                    onPairPc = onPairPc,
+                    onDpi = onDpi,
+                    onStepDpi = onStepDpi,
+                    onDismiss = { showTelemetry = false },
+                )
+                !ui.bluetoothGranted -> NoticeScreen(
+                    listState = noticeList,
+                    badgeColor = AccentAmber,
+                    title = "Bluetooth Needed",
+                    subtitle = if (permissionsBlocked) {
+                        "Bluetooth was denied. Turn on Nearby devices in app permissions."
+                    } else {
+                        "Allow advertising and GATT link to pair with desktop receiver."
+                    },
+                    buttonLabel = if (permissionsBlocked) "Open Settings" else "Allow Bluetooth",
+                    onAction = onRequestPermissions,
+                )
+                ui.peripheralUnsupported -> NoticeScreen(
+                    listState = noticeList,
+                    badgeColor = AccentRose,
+                    title = "Peripheral Blocked",
+                    subtitle = "This watch cannot advertise BLE. Switch to built-in BT HID mouse.",
+                    buttonLabel = "Use BT HID",
+                    onAction = { onRole(PointerRuntime.Role.STANDARD_HID) },
+                )
                 else -> {
+                    PerimeterInstrumentDial(sightColor = sightColor)
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(top = 15.dp, bottom = 12.dp),
+                            .padding(top = MainTopInset, bottom = 12.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         StatusCapsule(
                             ui = ui,
                             sightColor = sightColor,
-                            onClick = { showTelemetry = true },
+                            onClick = {
+                                scope.launch { settingsList.scrollToItem(0) }
+                                showTelemetry = true
+                            },
                         )
                         Spacer(Modifier.height(5.dp))
                         ClickPad(
@@ -258,27 +310,10 @@ fun RemoteScreen(
                     }
                 }
             }
-
-            if (showTelemetry) {
-                TelemetryOverlay(
-                    ui = ui,
-                    sightColor = sightColor,
-                    showPrivacy = showPrivacy,
-                    onShowPrivacy = { showPrivacy = it },
-                    onRole = onRole,
-                    onPairPc = onPairPc,
-                    onDpi = onDpi,
-                    onStepDpi = onStepDpi,
-                    onDismiss = {
-                        showPrivacy = false
-                        showTelemetry = false
-                    },
-                )
-            }
         }
     }
 
-    LaunchedEffect(ui.connected) {
+    LaunchedEffect(ui.connected, showTelemetry, showPrivacy, showNotice) {
         focus.requestFocus()
     }
 }
@@ -322,61 +357,111 @@ private fun PerimeterInstrumentDial(sightColor: Color) {
     }
 }
 
+/** Top inset of the main column; the status capsule starts here. */
+private val MainTopInset = 15.dp
+private val StatusCapsuleHeight = 22.dp
+/** Gap kept between any control and the edge of a round display. */
+private val RoundEdgeMargin = 4.dp
+
+/**
+ * Widest pill (rounded ends, [height] tall) that stays inside a round display of
+ * [diameter] when its top edge is [top] from the top of the screen. A square
+ * display is wider than the circle at every row, so the same limit is safe there.
+ */
+private fun pillMaxWidth(diameter: Dp, top: Dp, height: Dp): Dp {
+    val endRadius = height.value / 2f
+    val reach = diameter.value / 2f - RoundEdgeMargin.value - endRadius
+    val rise = diameter.value / 2f - top.value - endRadius
+    if (reach <= abs(rise)) return height
+    return (2f * sqrt(reach * reach - rise * rise) + height.value).dp
+}
+
+/**
+ * Status texts from longest to shortest. The capsule shows the first one that
+ * fits its round-safe width, so nothing reaches the edge of the display at any
+ * screen or font size.
+ */
+private fun statusLabels(ui: PointerRuntime.UiState): List<String> {
+    val dpi = ui.dpi
+    return when {
+        ui.status == "Stopped" -> listOf("STOPPED")
+        ui.status.startsWith("Sensor gap") -> listOf("RECENTERED")
+        ui.paused -> listOf("PAUSED · AWAKE", "PAUSED")
+        ui.connected -> when (ui.mode) {
+            PointerRuntime.Mode.ABSOLUTE -> {
+                val hz = if (ui.samplesPerSec > 0) "${ui.samplesPerSec}HZ" else "LIVE"
+                listOf("$hz · $dpi DPI", "$hz · $dpi", hz)
+            }
+            PointerRuntime.Mode.AIR -> listOf("AIR · $dpi DPI", "AIR · $dpi", "AIR")
+            PointerRuntime.Mode.TOUCH -> listOf("TOUCH · $dpi DPI", "TOUCH · $dpi", "TOUCH")
+        }
+        ui.status.startsWith("Link dropped") -> listOf("RECONNECTING", "RETRYING")
+        ui.status.contains("Discoverable", ignoreCase = true) -> listOf("PAIRABLE · 2M", "PAIRABLE")
+        ui.status == "Bluetooth is off" -> listOf("BLUETOOTH OFF", "BT OFF")
+        ui.status == "Waiting for link" -> listOf("STANDBY")
+        ui.role == PointerRuntime.Role.STANDARD_HID -> {
+            if (ui.status.contains("Connecting", ignoreCase = true)) {
+                listOf("HID · CONNECTING", "CONNECTING", "HID")
+            } else {
+                listOf("BT HID · $dpi DPI", "BT HID · $dpi", "BT HID")
+            }
+        }
+        ui.status.contains("Advertising", ignoreCase = true) -> listOf("ADV · $dpi DPI", "ADV · $dpi", "ADV")
+        ui.status.contains("Scanning", ignoreCase = true) -> listOf("SCANNING", "SCAN")
+        ui.status.contains("Connecting", ignoreCase = true) -> listOf("CONNECTING", "LINKING")
+        ui.status.startsWith("Starting") -> listOf("STARTING")
+        // Rare transport errors: shown in full when they fit, else ellipsized inside the capsule.
+        else -> listOf(ui.status.uppercase())
+    }
+}
+
 @Composable
 private fun StatusCapsule(
     ui: PointerRuntime.UiState,
     sightColor: Color,
     onClick: () -> Unit,
 ) {
-    val label = when {
-        ui.status == "Stopped" -> "STOPPED"
-        ui.status.startsWith("Sensor gap") -> "RECENTERED"
-        ui.paused -> "PAUSED · AWAKE"
-        ui.connected -> when (ui.mode) {
-            PointerRuntime.Mode.ABSOLUTE -> {
-                val hz = if (ui.samplesPerSec > 0) "${ui.samplesPerSec}HZ" else "LIVE"
-                "$hz · ${ui.dpi} DPI"
-            }
-            PointerRuntime.Mode.AIR -> "AIR · ${ui.dpi} DPI"
-            PointerRuntime.Mode.TOUCH -> "TOUCH · ${ui.dpi} DPI"
-        }
-        ui.status.startsWith("Link dropped") -> "RECONNECTING"
-        ui.status.contains("Discoverable", ignoreCase = true) -> "PAIRABLE · 2M"
-        ui.role == PointerRuntime.Role.STANDARD_HID && ui.status != "Bluetooth is off" -> {
-            if (ui.status.contains("Connecting", ignoreCase = true)) {
-                "HID · CONNECTING"
-            } else {
-                "BT HID · ${ui.dpi} DPI"
-            }
-        }
-        ui.status.contains("Advertising", ignoreCase = true) -> "ADV · ${ui.dpi} DPI"
-        ui.status.contains("Scanning", ignoreCase = true) -> "SCANNING"
-        else -> ui.status.uppercase()
+    val screen = LocalConfiguration.current
+    val diameter = minOf(screen.screenWidthDp, screen.screenHeightDp).dp
+    val maxWidth = pillMaxWidth(diameter, MainTopInset, StatusCapsuleHeight)
+    val padding = 10.dp
+    val dot = 6.dp
+    val gap = 5.dp
+    val style = TextStyle(
+        fontSize = 9.5.sp,
+        fontWeight = FontWeight.SemiBold,
+        fontFamily = FontFamily.Monospace,
+    )
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val labels = statusLabels(ui)
+    val label = remember(labels, maxWidth, density) {
+        val roomPx = with(density) { (maxWidth - padding * 2 - dot - gap).toPx() }
+        labels.firstOrNull { measurer.measure(it, style, maxLines = 1).size.width <= roomPx } ?: labels.last()
     }
     Row(
         modifier = Modifier
-            .height(22.dp)
+            .widthIn(max = maxWidth)
+            .height(StatusCapsuleHeight)
             .clip(CircleShape)
             .background(SurfaceElevated)
             .border(1.dp, BorderSubtle, CircleShape)
             .clickable(onClick = onClick)
             .semantics { contentDescription = "Status and telemetry" }
-            .padding(horizontal = 10.dp),
+            .padding(horizontal = padding),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(gap),
     ) {
         Box(
             modifier = Modifier
-                .size(6.dp)
+                .size(dot)
                 .clip(CircleShape)
                 .background(sightColor),
         )
         Text(
             text = label,
             color = TextPrimary,
-            fontSize = 9.5.sp,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = FontFamily.Monospace,
+            style = style,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -433,18 +518,26 @@ private fun ClickPad(ui: PointerRuntime.UiState, modifier: Modifier) {
         else -> "TAP"
     }
     val isIdleHint = !isStopped && !dragging && !ui.paused && !ui.connected
-    val subLabel = when {
-        isStopped -> "TAP START BELOW"
-        dragging -> if (touchMode) "SLIDE TO DRAG" else "RELEASE TO DROP"
-        ui.paused -> if (ui.mode == PointerRuntime.Mode.ABSOLUTE) "TRACKS WHILE AWAKE" else "CLUTCH · CURSOR HELD"
-        !ui.connected -> when (ui.role) {
-            PointerRuntime.Role.WATCH_ADVERTISES -> "Open PC app · or tap top for BT HID"
-            PointerRuntime.Role.STANDARD_HID -> "Pair in PC Bluetooth · tap top to Pair"
-            PointerRuntime.Role.DESKTOP_ADVERTISES -> "Scanning · or tap top for BT HID"
+    // Longest first; the pad shows the first hint that fits on one line.
+    val subLabels = when {
+        isStopped -> listOf("TAP START BELOW", "TAP START")
+        dragging -> if (touchMode) listOf("SLIDE TO DRAG", "SLIDE") else listOf("RELEASE TO DROP", "RELEASE")
+        ui.paused -> if (ui.mode == PointerRuntime.Mode.ABSOLUTE) {
+            listOf("TRACKS WHILE AWAKE", "AWAKE")
+        } else {
+            listOf("CLUTCH · CURSOR HELD", "CURSOR HELD")
         }
-        touchMode -> "TAP CLICK · HOLD DRAG"
-        ui.mode == PointerRuntime.Mode.AIR -> "AIR MOUSE · HOLD DRAG"
-        else -> "HOLD DRAG · BEZEL SCROLL"
+        !ui.connected -> when (ui.role) {
+            PointerRuntime.Role.WATCH_ADVERTISES ->
+                listOf("Open PC app · or tap top for BT HID", "Open the PC app", "Open PC app")
+            PointerRuntime.Role.STANDARD_HID ->
+                listOf("Pair in PC Bluetooth · tap top to Pair", "Pair in PC Bluetooth", "Pair with PC")
+            PointerRuntime.Role.DESKTOP_ADVERTISES ->
+                listOf("Scanning · or tap top for BT HID", "Scanning for PC", "Scanning")
+        }
+        touchMode -> listOf("TAP CLICK · HOLD DRAG", "HOLD TO DRAG", "HOLD")
+        ui.mode == PointerRuntime.Mode.AIR -> listOf("AIR MOUSE · HOLD DRAG", "HOLD TO DRAG", "HOLD")
+        else -> listOf("HOLD DRAG · BEZEL SCROLL", "HOLD TO DRAG", "HOLD")
     }
     val reticleColor = when {
         isStopped -> TextMuted
@@ -573,28 +666,41 @@ private fun ClickPad(ui: PointerRuntime.UiState, modifier: Modifier) {
             )
         }
 
-        Column(
+        val subStyle = TextStyle(
+            fontSize = if (isIdleHint) 7.5.sp else 8.sp,
+            fontFamily = if (isIdleHint) FontFamily.Default else FontFamily.Monospace,
+        )
+        val measurer = rememberTextMeasurer()
+        BoxWithConstraints(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .fillMaxWidth()
                 .padding(start = 8.dp, end = 8.dp, bottom = 6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+            contentAlignment = Alignment.BottomCenter,
         ) {
-            Text(
-                text = primaryLabel,
-                color = if (dragging) AccentEmerald else if (ui.paused) AccentAmber else TextPrimary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.8.sp,
-            )
-            Text(
-                text = subLabel,
-                color = TextSecondary,
-                fontSize = if (isIdleHint) 7.5.sp else 8.sp,
-                fontFamily = if (isIdleHint) FontFamily.Default else FontFamily.Monospace,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            val roomPx = constraints.maxWidth
+            val subLabel = remember(subLabels, subStyle, roomPx) {
+                subLabels.firstOrNull { measurer.measure(it, subStyle, maxLines = 1).size.width <= roomPx }
+                    ?: subLabels.last()
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = primaryLabel,
+                    color = if (dragging) AccentEmerald else if (ui.paused) AccentAmber else TextPrimary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.8.sp,
+                    maxLines = 1,
+                )
+                Text(
+                    text = subLabel,
+                    color = TextSecondary,
+                    style = subStyle,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -689,7 +795,9 @@ private fun DockButton(
     icon: DrawScope.(Color) -> Unit,
     onClick: () -> Unit,
 ) {
-    Column(
+    val style = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Medium)
+    val measurer = rememberTextMeasurer()
+    BoxWithConstraints(
         modifier = modifier
             .height(44.dp)
             .clip(shape)
@@ -697,21 +805,30 @@ private fun DockButton(
             .border(1.dp, border, shape)
             .clickable(onClick = onClick)
             .semantics { contentDescription = description },
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+        contentAlignment = Alignment.Center,
     ) {
-        Canvas(modifier = Modifier.size(13.dp)) {
-            icon(contentColor)
+        // On a small watch or with a large font the word can be wider than the
+        // button. Then the glyph stands alone (TalkBack still reads the
+        // description) instead of the text being cut at the button's edge.
+        val roomPx = constraints.maxWidth - with(LocalDensity.current) { 8.dp.toPx() }
+        val labelFits = remember(label, roomPx) {
+            measurer.measure(label, style, maxLines = 1).size.width <= roomPx
         }
-        Spacer(Modifier.height(2.dp))
-        Text(
-            text = label,
-            color = contentColor,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Medium,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Canvas(modifier = Modifier.size(if (labelFits) 13.dp else 18.dp)) {
+                icon(contentColor)
+            }
+            if (labelFits) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = label,
+                    color = contentColor,
+                    style = style,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                )
+            }
+        }
     }
 }
 
@@ -757,69 +874,166 @@ private fun PowerCapsule(
     }
 }
 
+/**
+ * Scrolling page for everything that is not the pointer instrument: the
+ * permission notices, Settings and Privacy. A list is centred row by row, so
+ * its content stays inside a round display at any screen and font size; long
+ * text wraps and the page scrolls instead of being cut off.
+ */
 @Composable
-private fun CenteredNoticeScreen(
-    badgeColor: Color,
-    title: String,
-    subtitle: String,
-    buttonLabel: String,
-    onAction: () -> Unit,
+private fun InstrumentList(
+    listState: ScalingLazyListState,
+    content: ScalingLazyListScope.() -> Unit,
 ) {
-    Column(
+    val screen = LocalConfiguration.current
+    val side = (screen.screenWidthDp * 0.1f).dp
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 30.dp, vertical = 26.dp),
+            .background(PitchBlack),
+    ) {
+        ScalingLazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            state = listState,
+            contentPadding = PaddingValues(horizontal = side),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            autoCentering = AutoCenteringParams(itemIndex = 0),
+            // The root of RemoteScreen owns the bezel (DPI on Settings, page scroll elsewhere).
+            rotaryScrollableBehavior = null,
+            // Rows shrink and fade earlier than the default as they near the top
+            // and bottom, so they follow the curve of a round display.
+            scalingParams = ScalingLazyColumnDefaults.scalingParams(
+                edgeScale = 0.5f,
+                edgeAlpha = 0.3f,
+                minTransitionArea = 0.45f,
+                maxTransitionArea = 0.7f,
+            ),
+            content = content,
+        )
+        PositionIndicator(scalingLazyListState = listState)
+    }
+}
+
+@Composable
+private fun ListTitle(text: String, color: Color = TextSecondary) {
+    Text(
+        text = text,
+        color = color,
+        fontSize = 12.sp,
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.6.sp,
+        textAlign = TextAlign.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 2.dp),
+    )
+}
+
+@Composable
+private fun ListNote(text: String, mono: Boolean = false) {
+    Text(
+        text = text,
+        color = TextSecondary,
+        fontSize = 12.sp,
+        fontFamily = if (mono) FontFamily.Monospace else FontFamily.Default,
+        textAlign = TextAlign.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 6.dp),
+    )
+}
+
+/** Full-width 48dp row: a choice (with [selected]) or an action. Text wraps; the row grows. */
+@Composable
+private fun ListRow(
+    label: String,
+    description: String,
+    secondary: String? = null,
+    selected: Boolean = false,
+    accent: Color? = null,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(24.dp)
+    val tint = if (selected) AccentEmerald else accent
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clip(shape)
+            .background(if (selected) SurfaceDrag else SurfaceIdle)
+            .border(1.dp, tint ?: BorderSubtle, shape)
+            .clickable(enabled = enabled, onClick = onClick)
+            .semantics { contentDescription = description }
+            .padding(horizontal = 14.dp, vertical = 7.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .size(10.dp)
-                .clip(CircleShape)
-                .background(badgeColor),
-        )
-        Spacer(Modifier.height(8.dp))
         Text(
-            text = title,
-            color = TextPrimary,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
+            text = label,
+            color = tint ?: TextPrimary,
+            fontSize = 14.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = subtitle,
-            color = TextSecondary,
-            fontSize = 10.sp,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(10.dp))
-        Box(
-            modifier = Modifier
-                .height(34.dp)
-                .clip(CircleShape)
-                .background(SurfaceElevated)
-                .border(1.dp, badgeColor, CircleShape)
-                .clickable(onClick = onAction)
-                .padding(horizontal = 16.dp),
-            contentAlignment = Alignment.Center,
-        ) {
+        if (secondary != null) {
             Text(
-                text = buttonLabel,
-                color = TextPrimary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
+                text = secondary,
+                color = TextSecondary,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center,
             )
         }
     }
 }
 
 @Composable
-private fun TelemetryOverlay(
+private fun NoticeScreen(
+    listState: ScalingLazyListState,
+    badgeColor: Color,
+    title: String,
+    subtitle: String,
+    buttonLabel: String,
+    onAction: () -> Unit,
+) {
+    InstrumentList(listState = listState) {
+        item {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(badgeColor),
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = title,
+                    color = TextPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+        item { ListNote(subtitle) }
+        item {
+            ListRow(
+                label = buttonLabel,
+                description = buttonLabel,
+                accent = badgeColor,
+                onClick = onAction,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsScreen(
     ui: PointerRuntime.UiState,
-    sightColor: Color,
-    showPrivacy: Boolean,
-    onShowPrivacy: (Boolean) -> Unit,
+    listState: ScalingLazyListState,
+    onShowPrivacy: () -> Unit,
     onRole: (PointerRuntime.Role) -> Unit,
     onPairPc: () -> Unit,
     onDpi: (Int) -> Unit,
@@ -827,410 +1041,217 @@ private fun TelemetryOverlay(
     onDismiss: () -> Unit,
 ) {
     val view = LocalView.current
-    if (showPrivacy) {
-        PrivacyOverlay(
-            sightColor = sightColor,
-            onBack = { onShowPrivacy(false) },
-        )
-        return
-    }
     val leftDeg = "%+d°".format((ui.aimLeftCdeg / 100f).roundToInt())
     val upDeg = "%+d°".format((ui.aimUpCdeg / 100f).roundToInt())
     val reachDeg = "%.1f°".format(25f * Packets.BASE_DPI / ui.dpi.coerceAtLeast(Packets.MIN_DPI))
-    val canDecrease = ui.dpi > Packets.MIN_DPI
-    val canIncrease = ui.dpi < Packets.MAX_DPI
     val showPairPc = ui.role == PointerRuntime.Role.STANDARD_HID && !ui.connected
-    Box(
+    InstrumentList(listState = listState) {
+        item { ListTitle("SENSITIVITY") }
+        item {
+            DpiStepper(
+                dpi = ui.dpi,
+                onStep = { step ->
+                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    onStepDpi(step)
+                },
+                onReset = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    onDpi(Packets.DEFAULT_DPI)
+                },
+            )
+        }
+        item { ListNote("Reach ±$reachDeg. Turn the bezel to tune, tap the value to reset.") }
+
+        item { ListTitle("POINTING MODE") }
+        items(PointerRuntime.Mode.entries.size) { index ->
+            val option = PointerRuntime.Mode.entries[index]
+            val (label, hint) = when (option) {
+                PointerRuntime.Mode.ABSOLUTE -> "Laser" to "Point at the screen"
+                PointerRuntime.Mode.AIR -> "Air mouse" to "Move by wrist motion"
+                PointerRuntime.Mode.TOUCH -> "Touchpad" to "Slide on the watch"
+            }
+            ListRow(
+                label = label,
+                secondary = hint,
+                description = "Pointing mode: ${option.label}",
+                selected = option == ui.mode,
+                enabled = option != ui.mode,
+                onClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    PointerRuntime.setMode(option)
+                },
+            )
+        }
+
+        item { ListTitle("LINK") }
+        items(PointerRuntime.Role.entries.size) { index ->
+            val option = PointerRuntime.Role.entries[index]
+            val (label, hint, desc) = when (option) {
+                PointerRuntime.Role.WATCH_ADVERTISES ->
+                    Triple("BLE app", "Desktop receiver app", "BLE Desktop App")
+                PointerRuntime.Role.STANDARD_HID ->
+                    Triple("BT HID", "Bluetooth mouse", "Standard Bluetooth HID Mouse")
+                PointerRuntime.Role.DESKTOP_ADVERTISES ->
+                    Triple("Alt", "Desktop advertises", "Alternate Desktop Advertiser")
+            }
+            ListRow(
+                label = label,
+                secondary = hint,
+                description = "Link transport: $desc",
+                selected = option == ui.role,
+                enabled = option != ui.role,
+                onClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    onRole(option)
+                },
+            )
+        }
+        if (showPairPc) {
+            item {
+                ListRow(
+                    label = "Pair PC",
+                    secondary = "Discoverable for 2 min",
+                    description = "Pair PC via Bluetooth",
+                    accent = AccentEmerald,
+                    onClick = {
+                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                        onPairPc()
+                    },
+                )
+            }
+        }
+
+        item { ListTitle("TELEMETRY") }
+        item {
+            ListNote(
+                "Sensor ${ui.samplesPerSec} Hz\nSent ${ui.sentPerSec}/s\nAim L $leftDeg U $upDeg",
+                mono = true,
+            )
+        }
+
+        item {
+            ListRow(
+                label = "Privacy",
+                description = "Privacy Policy",
+                onClick = onShowPrivacy,
+            )
+        }
+        item {
+            ListRow(
+                label = "Done",
+                description = "Done",
+                onClick = onDismiss,
+            )
+        }
+    }
+}
+
+/** − / value / + with 48dp targets. Tapping the value resets to the default DPI. */
+@Composable
+private fun DpiStepper(
+    dpi: Int,
+    onStep: (Int) -> Unit,
+    onReset: () -> Unit,
+) {
+    val canDecrease = dpi > Packets.MIN_DPI
+    val canIncrease = dpi < Packets.MAX_DPI
+    Row(
         modifier = Modifier
-            .fillMaxSize()
-            .background(PitchBlack)
-            .clickable(onClick = onDismiss),
-        contentAlignment = Alignment.Center,
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .background(SurfaceElevated)
+            .border(1.dp, BorderStrong, RoundedCornerShape(28.dp))
+            .padding(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        PerimeterInstrumentDial(sightColor = sightColor)
+        StepButton(
+            glyph = "−",
+            description = "Decrease DPI",
+            enabled = canDecrease,
+            onClick = { onStep(-1) },
+        )
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(start = 24.dp, end = 24.dp, top = 13.dp, bottom = 17.dp)
-                .clickable(enabled = false) {},
+                .weight(1f)
+                .heightIn(min = 48.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .clickable(onClick = onReset)
+                .semantics { contentDescription = "Reset DPI to default" },
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween,
+            verticalArrangement = Arrangement.Center,
         ) {
             Text(
-                text = "SENSITIVITY · MODE",
-                color = TextSecondary,
-                fontSize = 8.5.sp,
+                text = "$dpi",
+                color = AccentEmerald,
+                fontSize = 16.sp,
                 fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.6.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false,
+            )
+            Text(
+                text = "DPI",
+                color = TextSecondary,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
                 maxLines = 1,
             )
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(32.dp)
-                    .clip(CircleShape)
-                    .background(SurfaceElevated)
-                    .border(1.dp, BorderStrong, CircleShape)
-                    .padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(width = 35.dp, height = 24.dp)
-                        .clip(CircleShape)
-                        .background(SurfaceIdle)
-                        .border(1.dp, if (canDecrease) BorderStrong else BorderSubtle, CircleShape)
-                        .clickable(enabled = canDecrease) {
-                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                            onStepDpi(-1)
-                        }
-                        .semantics { contentDescription = "Decrease DPI" },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "−",
-                        color = if (canDecrease) TextPrimary else TextMuted,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable {
-                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                            onDpi(Packets.DEFAULT_DPI)
-                        }
-                        .semantics { contentDescription = "Reset DPI to default" },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Text(
-                        text = "${ui.dpi} DPI",
-                        color = AccentEmerald,
-                        fontSize = 10.5.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                    )
-                    Text(
-                        text = "±$reachDeg · BEZEL TUNES",
-                        color = TextMuted,
-                        fontSize = 6.8.sp,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 1,
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .size(width = 35.dp, height = 24.dp)
-                        .clip(CircleShape)
-                        .background(SurfaceIdle)
-                        .border(1.dp, if (canIncrease) BorderStrong else BorderSubtle, CircleShape)
-                        .clickable(enabled = canIncrease) {
-                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                            onStepDpi(1)
-                        }
-                        .semantics { contentDescription = "Increase DPI" },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "+",
-                        color = if (canIncrease) TextPrimary else TextMuted,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-
-            ModeSelector(
-                mode = ui.mode,
-                onMode = { mode ->
-                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                    PointerRuntime.setMode(mode)
-                },
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                MetricTile("SENSOR", "${ui.samplesPerSec} Hz", Modifier.weight(1f))
-                MetricTile("SENT/S", "${ui.sentPerSec}", Modifier.weight(1f))
-                MetricTile("AIM L/U", "$leftDeg $upDeg", Modifier.weight(1.4f), compact = true)
-            }
-
-            LinkSelector(
-                role = ui.role,
-                onRole = { role ->
-                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                    onRole(role)
-                },
-            )
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(if (showPairPc) 5.dp else 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (showPairPc) {
-                    Box(
-                        modifier = Modifier
-                            .height(22.dp)
-                            .clip(CircleShape)
-                            .background(SurfaceDrag)
-                            .border(1.dp, AccentEmerald, CircleShape)
-                            .clickable {
-                                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                                onPairPc()
-                            }
-                            .semantics { contentDescription = "Pair PC via Bluetooth" }
-                            .padding(horizontal = 8.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "Pair PC",
-                            color = AccentEmerald,
-                            fontSize = 8.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                        )
-                    }
-                }
-                Box(
-                    modifier = Modifier
-                        .height(22.dp)
-                        .clip(CircleShape)
-                        .background(SurfaceIdle)
-                        .border(1.dp, BorderSubtle, CircleShape)
-                        .clickable { onShowPrivacy(true) }
-                        .semantics { contentDescription = "Privacy Policy" }
-                        .padding(horizontal = if (showPairPc) 8.dp else 12.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "Privacy",
-                        color = TextSecondary,
-                        fontSize = if (showPairPc) 8.5.sp else 9.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .then(if (showPairPc) Modifier.padding(horizontal = 0.dp) else Modifier.width(64.dp))
-                        .height(22.dp)
-                        .clip(CircleShape)
-                        .background(SurfaceElevated)
-                        .border(1.dp, BorderStrong, CircleShape)
-                        .clickable(onClick = onDismiss)
-                        .semantics { contentDescription = "Done" }
-                        .padding(horizontal = if (showPairPc) 9.dp else 0.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "Done",
-                        color = TextPrimary,
-                        fontSize = if (showPairPc) 8.5.sp else 9.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                    )
-                }
-            }
         }
-    }
-}
-
-/** 3-segment Link Bar: BLE Desktop App · Standard Bluetooth HID Mouse · Alternate Central. */
-@Composable
-private fun LinkSelector(
-    role: PointerRuntime.Role,
-    onRole: (PointerRuntime.Role) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp)
-            .height(25.dp)
-            .clip(CircleShape)
-            .background(SurfaceIdle)
-            .border(1.dp, BorderSubtle, CircleShape)
-            .padding(2.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        PointerRuntime.Role.entries.forEach { option ->
-            val selected = option == role
-            val (short, weight, desc) = when (option) {
-                PointerRuntime.Role.WATCH_ADVERTISES -> Triple("BLE APP", 1.15f, "BLE Desktop App")
-                PointerRuntime.Role.STANDARD_HID -> Triple("BT HID", 1.05f, "Standard Bluetooth HID Mouse")
-                PointerRuntime.Role.DESKTOP_ADVERTISES -> Triple("ALT", 0.8f, "Alternate Desktop Advertiser")
-            }
-            Box(
-                modifier = Modifier
-                    .weight(weight)
-                    .fillMaxSize()
-                    .clip(CircleShape)
-                    .background(if (selected) SurfaceDrag else SurfaceIdle)
-                    .border(1.dp, if (selected) AccentEmerald else SurfaceIdle, CircleShape)
-                    .clickable(enabled = !selected) { onRole(option) }
-                    .semantics { contentDescription = "Link transport: $desc" },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = short,
-                    color = if (selected) AccentEmerald else TextSecondary,
-                    fontSize = 7.8.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                    maxLines = 1,
-                    softWrap = false,
-                )
-            }
-        }
-    }
-}
-
-/** Absolute / Air mouse / Touchpad. The desktop follows the watch's choice. */
-@Composable
-private fun ModeSelector(
-    mode: PointerRuntime.Mode,
-    onMode: (PointerRuntime.Mode) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(26.dp)
-            .clip(CircleShape)
-            .background(SurfaceIdle)
-            .border(1.dp, BorderSubtle, CircleShape)
-            .padding(2.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        PointerRuntime.Mode.entries.forEach { option ->
-            val selected = option == mode
-            val short = when (option) {
-                PointerRuntime.Mode.ABSOLUTE -> "LASER"
-                PointerRuntime.Mode.AIR -> "AIR"
-                PointerRuntime.Mode.TOUCH -> "TOUCH"
-            }
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxSize()
-                    .clip(CircleShape)
-                    .background(if (selected) SurfaceDrag else SurfaceIdle)
-                    .border(1.dp, if (selected) AccentEmerald else SurfaceIdle, CircleShape)
-                    .clickable(enabled = !selected) { onMode(option) }
-                    .semantics { contentDescription = "Pointing mode: ${option.label}" },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = short,
-                    color = if (selected) AccentEmerald else TextSecondary,
-                    fontSize = 8.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                    maxLines = 1,
-                )
-            }
-        }
+        StepButton(
+            glyph = "+",
+            description = "Increase DPI",
+            enabled = canIncrease,
+            onClick = { onStep(1) },
+        )
     }
 }
 
 @Composable
-private fun PrivacyOverlay(
-    sightColor: Color,
-    onBack: () -> Unit,
+private fun StepButton(
+    glyph: String,
+    description: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
 ) {
     Box(
         modifier = Modifier
-            .fillMaxSize()
-            .background(PitchBlack)
-            .clickable(onClick = onBack),
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(SurfaceIdle)
+            .border(1.dp, if (enabled) BorderStrong else BorderSubtle, CircleShape)
+            .clickable(enabled = enabled, onClick = onClick)
+            .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {
-        PerimeterInstrumentDial(sightColor = sightColor)
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 28.dp, vertical = 20.dp)
-                .clickable(enabled = false) {},
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                text = "PRIVACY POLICY",
-                color = AccentEmerald,
-                fontSize = 9.5.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 1.sp,
-            )
-            Text(
-                text = "Zero personal data collected, stored, or shared. Motion sensors & BLE stream locally to your computer cursor only. No INTERNET permission, analytics, or ads.\n\naa22396584.gitlab.io/wear-pointer/privacy.html",
-                color = TextSecondary,
-                fontSize = 8.5.sp,
-                textAlign = TextAlign.Center,
-            )
-            Box(
-                modifier = Modifier
-                    .width(76.dp)
-                    .height(24.dp)
-                    .clip(CircleShape)
-                    .background(SurfaceElevated)
-                    .border(1.dp, BorderStrong, CircleShape)
-                    .clickable(onClick = onBack),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "Back",
-                    color = TextPrimary,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
+        Text(
+            text = glyph,
+            color = if (enabled) TextPrimary else TextMuted,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 
 @Composable
-private fun MetricTile(
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier,
-    compact: Boolean = false,
+private fun PrivacyScreen(
+    listState: ScalingLazyListState,
+    onBack: () -> Unit,
 ) {
-    Column(
-        modifier = modifier
-            .height(29.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(SurfaceIdle)
-            .border(1.dp, BorderSubtle, RoundedCornerShape(10.dp))
-            .padding(horizontal = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            text = label,
-            color = TextMuted,
-            fontSize = 7.5.sp,
-            fontFamily = FontFamily.Monospace,
-            maxLines = 1,
-            softWrap = false,
-        )
-        Text(
-            text = value,
-            color = TextPrimary,
-            fontSize = if (compact) 8.5.sp else 10.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            softWrap = false,
-        )
+    InstrumentList(listState = listState) {
+        item { ListTitle("PRIVACY POLICY", color = AccentEmerald) }
+        // One short row per sentence: each row scales with the round edge on its own.
+        item { ListNote("Zero personal data collected, stored, or shared.") }
+        item { ListNote("Motion sensors & BLE stream locally to your computer cursor only.") }
+        item { ListNote("No INTERNET permission, analytics, or ads.") }
+        item { ListNote("aa22396584.gitlab.io/\nwear-pointer/privacy.html") }
+        item {
+            ListRow(
+                label = "Back",
+                description = "Back",
+                onClick = onBack,
+            )
+        }
     }
 }
 

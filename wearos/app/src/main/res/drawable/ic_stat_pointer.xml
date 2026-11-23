@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status icon for the foreground notification and the Ongoing Activity: the launcher's pointer arrow, white on transparent. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="34"
+    android:viewportHeight="34">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30.5,3.5 L3.5,12 L12,16.5 L5,23.5 L10.5,29 L17.5,22 L22,30.5 Z" />
+</vector>

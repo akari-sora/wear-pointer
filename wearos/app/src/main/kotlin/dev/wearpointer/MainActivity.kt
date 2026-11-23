@@ -17,6 +17,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import dev.wearpointer.ui.RemoteScreen
 
 class MainActivity : ComponentActivity() {
@@ -42,7 +43,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Optional: the pointer runs either way, so the answer is not acted on. */
+    private val notifications = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {}
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Wear OS branded launch: 48dp app icon on black, then Theme.WearPointer.
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         setContent {
             val state by PointerRuntime.state.collectAsState()
@@ -70,6 +78,14 @@ class MainActivity : ComponentActivity() {
         }
         if (hasBlePermissions()) {
             startPointer()
+            // Bluetooth was granted earlier (for example before an update), so the
+            // combined request never ran. Without notifications the system hides
+            // the session's Ongoing Activity; ask once, on its own.
+            if (savedInstanceState == null &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
         }
     }
 

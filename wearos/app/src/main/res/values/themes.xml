@@ -8,4 +8,15 @@
     <style name="Theme.WearPointer" parent="@android:style/Theme.DeviceDefault">
         <item name="android:windowSwipeToDismiss">false</item>
     </style>
+
+    <!--
+        Launch theme: the Wear OS branded launch, a 48dp app icon on black.
+        MainActivity.installSplashScreen() swaps to Theme.WearPointer.
+    -->
+    <style name="Theme.WearPointer.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@android:color/black</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_screen</item>
+        <item name="postSplashScreenTheme">@style/Theme.WearPointer</item>
+        <item name="android:windowSwipeToDismiss">false</item>
+    </style>
 </resources>

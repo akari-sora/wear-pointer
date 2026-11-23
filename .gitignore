@@ -20,3 +20,6 @@ tools/store-assets/out/
 # Agent tooling state
 .omc/
 .omg/
+
+# Machine-specific agent notes
+AGENTS.local.md

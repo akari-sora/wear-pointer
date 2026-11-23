@@ -94,7 +94,7 @@ wear-pointer [--tray | --no-tray] [--version] [--debug] [--role central|peripher
 | `protocol/` | Protocol v1: UUIDs, packet bytes, the aim test vector. |
 | `receiver/` | Rust workspace. `core` (tested motion & live overrides), `bluetooth` (btleplug central), `platform` (Hyprland, macOS, Windows, log, optional uinput), `wear-pointer` (CLI + native Menu Bar / System Tray app). |
 | `tools/` | macOS `.app`/`.dmg` packagers, Linux installer (`install-linux.sh`), Linux/Hyprland BLE harness (`tools/harness/`), store asset generator (`tools/store-assets/`), and Remotion promo video project (`tools/promo/`). |
-| `docs/` | Architecture, Stage 0 checklist, acceptance targets, BLE fallback, hardware evidence (`docs/evidence/`), showcase media (`docs/assets/`). |
+| `docs/` | Architecture, Stage 0 checklist, acceptance targets, BLE fallback, hardware evidence (`docs/evidence/`), showcase media (`docs/assets/`), Google Play release and Wear OS review notes (`docs/play-release.md`). Coding agents start at `AGENTS.md`. |
 
 ## Current status
 
